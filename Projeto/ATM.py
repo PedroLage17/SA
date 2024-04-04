@@ -143,37 +143,48 @@ except Exception as e:
 json_obj3 = {'counter': token+2, 'card_number': card_num, 'operation': operation, 'amount': args.balance or args.deposit or args.withdraw, 'name': args.account, 'pin': pin}
 json_string3 = json.dumps(json_obj3)
 
-print("Sending request to bank:", json_obj3)  # Add this line to print the request sent to the bank
+print("Sending request to bank:", json_obj3)
 
-# Send the request data to the bank
 try:
     s.send(fernet_obj.encrypt(json_string3.encode()))
-    print("Request sent successfully")  # Add this line to print successful request transmission
+    print("Request sent successfully")
 except Exception as e:
-    print("Error sending request to bank:", e)  # Add this line to print error in request transmission
+    print("Error sending request to bank:", e)
     s.close()
     sys.exit(255)
 
-# Import statements and other initial setup omitted for brevity
-
-json_obj3 = {'counter': token+2, 'card_number': card_num, 'operation': operation, 'amount': args.balance or args.deposit or args.withdraw, 'name': args.account, 'pin': pin}
-json_string3 = json.dumps(json_obj3)
-
+# Receiving response from the bank
 try:
-    json_obj2 = json.loads(fernet_obj.decrypt(json_string2).decode())
-    print("Decrypted data from ATM:", json_obj2)  # Add this line to print the decrypted data
+    json_string2 = s.recv(BUFFER_SIZE)
+    print("Received ciphertext:", json_string2)
+except (socket.error, socket.timeout) as e:
+    print("Error receiving response from bank:", e)
+    s.close()
+    sys.exit(255)
+
+# Decrypting the response from the bank
+try:
+    json_obj4 = json.loads(fernet_obj.decrypt(json_string2).decode())
+    print("Decrypted data from ATM:", json_obj4)
 except Exception as e:
-    print("Error decrypting data from ATM:", e)  # Add this line to print the error message
+    print("Error decrypting data from ATM:", e)
     s.close()
     sys.exit(255)
 
-print("Sending request to bank:", json_obj3)  # Add this line to print the request sent to the bank
-
-json_obj4 = json.loads(fernet_obj.decrypt(json_string2).decode())
-if json_obj4['counter'] != token+3:
+# Ensure the 'counter' key is present in the response
+if 'counter' not in json_obj4:
+    print("Counter key not found in response from bank")
     s.close()
     sys.exit(255)
+
+# Check if the 'counter' value matches the expected value
+if json_obj4['counter'] != token+1:
+    print("Counter mismatch in response from bank")
+    s.close()
+    sys.exit(255)
+
 if json_obj4['success'] == False:
+    print("Transaction failed:", json_obj4.get('error_message', 'Unknown error'))
     s.close()
     sys.exit(255)
 
@@ -186,6 +197,6 @@ if args.withdraw != None:
         f.write(json.dumps(user_info))
         f.truncate()
 
-print("Operation Successful!")  # Print message after each operation
-print("Transaction Summary:", json.dumps(json_obj4['summary']))  # Print transaction summary
+print("Operation Successful!")
+print("Transaction Summary:", json.dumps(json_obj4['summary']))
 s.close()

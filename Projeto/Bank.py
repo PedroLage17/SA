@@ -1,4 +1,3 @@
-from cryptography.fernet import Fernet
 import argparse
 import json
 import random
@@ -7,6 +6,7 @@ import sys
 import socket
 import os
 import signal
+from cryptography.fernet import Fernet
 
 BUFFER_SIZE = 1024
 
@@ -38,7 +38,7 @@ class Account:
                 self.cents += 100
             return amount
         else:
-            return 0
+            return False
 
     def deposit(self, amount_string):
         amount = parse_money(amount_string)
@@ -53,23 +53,22 @@ class Account:
         return balance_string
 
 def authenticate(f, conn):
-    ciphertext = conn.recv(BUFFER_SIZE)
-    print("Received ciphertext:", ciphertext)  # Add this line to print the received ciphertext
-    if not ciphertext:  # Check if ciphertext is empty
-        print("Received empty ciphertext")
-        return 0
     try:
+        ciphertext = conn.recv(BUFFER_SIZE)
+        print("Received ciphertext:", ciphertext)
+        if not ciphertext:
+            print("Received empty ciphertext")
+            return 0
         data = f.decrypt(ciphertext)
-        print("Decrypted data:", data)  # Add this line for debugging
+        print("Decrypted data:", data)
         request = json.loads(data)
         counter = request['counter']
         conn.send(f.encrypt(json.dumps({'counter': counter + 1}).encode()))
-        print("Authentication successful for counter:", counter)  # Add debug print
+        print("Authentication successful for counter:", counter)
         return counter
     except Exception as e:
-        print("Authentication failed:", e)  # Add debug print
+        print("Authentication failed:", e)
         return 0
-
 
 def create(accounts, name, amount):
     response = {'success': True}
@@ -89,14 +88,17 @@ def deposit(account, amount):
     response = {'success': True, 'summary': {'account': account.name, 'deposit': amount}}
     return response
 
-def withdraw(account, amount):
-    r = account.withdraw(amount)
-    if r:
-        response = {'success': True, 'summary': {'account': account.name, 'withdraw': amount}}
-        return response
+def withdraw(account, amount_string):
+    amount = parse_money(amount_string)
+    if amount[0] < account.dollars or (amount[0] == account.dollars and amount[1] <= account.cents):
+        account.dollars -= amount[0]
+        account.cents -= amount[1]
+        if account.cents < 0:
+            account.dollars -= 1
+            account.cents += 100
+        return amount  # Return the withdrawn amount
     else:
-        response = {'success': False}
-        return response
+        return False
 
 def getinfo(account):
     balance = account.get_balance()
@@ -121,20 +123,39 @@ def handle_request(f, conn, counter, accounts):
             if response['success']:
                 print("Account created. Name:", response['summary']['account'], "Balance:", response['summary']['initial_balance'], "PIN:", response['pin'])
         else:
-            account = accounts[int(request['card_number'])]
+            account = accounts.get(int(request['card_number']))
+            if account is None:
+                response = {'success': False}
+                return response
+
             if account.name != request['name']:
-                return 0
+                response = {'success': False}
+                return response
+
             if request['operation'] == "deposit":
                 response = deposit(account, request['amount'])
                 update_user_info(request['name'], account.get_balance())
             elif request['operation'] == "withdraw":
-                response = withdraw(account, request['amount'])
-                update_user_info(request['name'], account.get_balance())
+                withdrawn_amount = withdraw(account, request['amount'])
+                if withdrawn_amount:
+                    response = {'success': True, 'summary': {'account': account.name, 'withdrawn': request['amount']}}
+                    update_user_info(request['name'], account.get_balance())
+                else:
+                    response = {'success': False, 'error_message': 'Insufficient funds'}
             elif request['operation'] == "getinfo":
                 response = getinfo(account)
             else:
-                return 0
-        response['counter'] = counter + 3
+                response = {'success': False}
+                return response
+
+        response['counter'] = counter + 1  # Increment the counter correctly
+        print("Response dictionary:", response)  # Add debug print
+        response_data = json.dumps(response).encode()
+        print("Response data:", response_data)  # Add debug print
+        ciphertext_response = f.encrypt(response_data)
+        print("Encrypted response:", ciphertext_response)  # Add debug print
+        conn.send(ciphertext_response)
+        print("Response sent successfully")
         return response
     except Exception as e:
         print("Error handling request:", e)
@@ -189,36 +210,31 @@ if __name__ == '__main__':
     s.bind(('', args.port))
     s.listen(1)
 
-    # Import statements and other initial setup omitted for brevity
+    while True:
+        conn, addr = s.accept()
+        conn.settimeout(10)
+        print("Connection established with:", addr)
 
-while True:
-    conn, addr = s.accept()
-    conn.settimeout(10)
-    print("Connection established with:", addr)  # Add this line to print connection establishment
-    counter = authenticate(f, conn)
-    if counter:
-        print("Authentication successful for counter:", counter)  # Add this line to print successful authentication
-        response = handle_request(f, conn, counter, accounts)
-        if response:
-            print("Response generated:", response)  # Add this line to print generated response
-            ciphertext = f.encrypt(json.dumps(response).encode())
-            try:
-                conn.send(ciphertext)
-                print("Response sent successfully")  # Add this line to print successful response transmission
-            except:
-                print("Error sending response")  # Add this line to print error in response transmission
-            try:
-                print(json.dumps(response['summary']))
-            except KeyError:
-                pass
+        counter = authenticate(f, conn)
+        if counter:
+            print("Authentication successful for counter:", counter)
+            response = handle_request(f, conn, counter, accounts)
+            if response:
+                print("Response generated:", response)
+                ciphertext = f.encrypt(json.dumps(response).encode())
+                try:
+                    conn.send(ciphertext)
+                    print("Response sent successfully")
+                except Exception as e:
+                    print("Error sending response to ATM:", e)
+                try:
+                    print(json.dumps(response['summary']))
+                except KeyError:
+                    pass
+            else:
+                print("No response generated")
+                print("protocol_error")
         else:
-            print("No response generated")  # Add this line to print when no response is generated
+            print("Authentication failed")
             print("protocol_error")
-    else:
-        print("Authentication failed")  # Add this line to print when authentication fails
-        print("protocol_error")
-
-
-
-
-
+        conn.close()
