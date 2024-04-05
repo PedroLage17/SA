@@ -47,6 +47,9 @@ def lerChave():
         print("Error reading authentication file:", e)  # Add debug print
         sys.exit(255)
 
+def leCartao():
+    pass
+##### coisas aqui
 
 
 
