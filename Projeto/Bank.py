@@ -9,9 +9,13 @@ import signal
 from cryptography.fernet import Fernet
 
 BUFFER_SIZE = 1024
+accounts = {}
+
+
 
 def handler(signum, frame):
     sys.exit(0)
+
 
 def parse_money(money_string):
     parts = money_string.split('.')
@@ -20,7 +24,10 @@ def parse_money(money_string):
     amount[1] = int(parts[1])
     return amount
 
+
 class Account:
+    ## Criar novo cartao
+        ## id, nome, balance, 
     def __init__(self, name, balance):
         self.card_number = random.randint(1000000, 9999999)
         self.name = name
@@ -52,6 +59,8 @@ class Account:
         balance_string = str(self.dollars) + '.' + str(self.cents)
         return balance_string
 
+
+
 def authenticate(f, conn):
     try:
         ciphertext = conn.recv(BUFFER_SIZE)
@@ -69,6 +78,8 @@ def authenticate(f, conn):
     except Exception as e:
         print("Authentication failed:", e)
         return 0
+
+
 
 def create(accounts, name, amount):
     response = {'success': True}
@@ -172,7 +183,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, handler)
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", help="port number", default=4001, type=int)
-    parser.add_argument("-s", "--auth_file", help="auth file", nargs='?')
+    parser.add_argument("-s", "--auth_file", help="auth file",default="bank.auth", nargs='?')
 
     args = parser.parse_args()
 
@@ -182,33 +193,32 @@ if __name__ == '__main__':
         sys.exit(255)
 
     pattern = re.compile(r'[_\-\.0-9a-z]{1,255}')
-    auth_file_name = ""
 
+    auth_file_name = "bank.auth"
     if args.auth_file:
-        if os.path.isfile(args.auth_file):
+        if os.path.isfile(args.auth_file):## se ficheiro existe
             sys.exit(255)
-        if not pattern.match(args.auth_file):
+        if not pattern.match(args.auth_file): ## se nome ficheiro for incorrecto
             parser.print_help()
             print(r"file name must match [_\-\.0-9a-z]{1,255}")
             sys.exit(255)
-        else:
-            auth_file_name = args.auth_file
-    else:
-        auth_file_name = "bank.auth"
+        ## se ficheiro Auth não existe, então o nome passa a ser este
+        auth_file_name = args.auth_file
+        print("created")
+        key = Fernet.generate_key()
+        auth_file = open(auth_file_name, 'wb')
+        auth_file.write(key)
+        auth_file.close()
 
-    print("created")
-    key = Fernet.generate_key()
-    auth_file = open(auth_file_name, 'wb')
-    auth_file.write(key)
-    auth_file.close()
+        f = Fernet(key)
 
-    f = Fernet(key)
-
-    accounts = {}
+        
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(('', args.port))
     s.listen(1)
+
+
 
     while True:
         conn, addr = s.accept()

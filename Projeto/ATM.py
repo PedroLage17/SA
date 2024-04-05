@@ -23,8 +23,9 @@ group.add_argument("-g", help="get the information about account", action="store
 
 args = parser.parse_args()
 
-if args.cardfile == None:
-    args.cardfile = args.account + ".card"
+
+
+
 
 # Check if the amount is valid
 def is_valid_amount(amount):
@@ -38,6 +39,29 @@ def is_valid_amount(amount):
     else:
         sys.exit(255)
 
+## função responsavel por ler a chave no ATM
+def lerChave():
+    try:
+        with open(args.authfile, 'rb') as f_auth:
+            return f_auth.read().strip()
+    except IOError as e:
+        print("Error reading authentication file:", e)  # Add debug print
+        sys.exit(255)
+
+
+
+
+
+##### VERIFICAÇÕESSS
+
+fernet_obj = lerChave()
+
+## verifica cartao
+if args.cardfile == None:
+    args.cardfile = args.account + ".card"
+
+
+## verifica Argumentos
 if args.getinfo == False:
     if args.balance != None:
         is_valid_amount(args.balance)
@@ -52,16 +76,18 @@ try:
 except IOError as e:
     sys.exit(255)
 
+
+#######  LER CARTÃO    ou      CRIAR    ou  Encerrar caso erro
 try:
     with open(args.cardfile, 'rb') as f_card:
         card_data = json.load(f_card)
         card_num = int(card_data.get('card_number', 0))
-        user_balance = float(card_data.get('balance', 0))
-        pin = int(card_data.get('pin', 0))
+        user_balance = float(card_data.get('balance', 0)) ## sair
+        pin = int(card_data.get('pin', 0)) ## sair
 except IOError as e:
-    if args.balance != None:
+    if args.balance != None: ## quyem cria o cartao é o banco
         card_num = random.randint(1000000, 9999999)
-        user_balance = float(args.balance)
+        user_balance = float(args.balance)                          ############VER
         pin = random.randint(1000, 9999)
         with open(args.cardfile, 'w') as f:
             f.write(json.dumps({'account': args.account, 'card_number': card_num, 'balance': args.balance, 'pin': pin}))
@@ -79,24 +105,10 @@ elif args.withdraw != None:
 else:
     operation = 'getinfo'
 
-fernet_obj = Fernet(secret_key)
 
-try:
-    with open(args.authfile, 'rb') as f_auth:
-        secret_key = f_auth.read().strip()
-except IOError as e:
-    print("Error reading authentication file:", e)  # Add debug print
-    sys.exit(255)
 
-# Check if the encryption key is correct
-print("Encryption key:", secret_key)  # Add debug print
 
-# Initialize Fernet with the encryption key
-try:
-    fernet_obj = Fernet(secret_key)
-except Exception as e:
-    print("Error initializing Fernet with the encryption key:", e)
-    sys.exit(255)
+
 
 # Now you can proceed to establish a connection with the bank
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
