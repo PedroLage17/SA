@@ -45,10 +45,13 @@ class Account:
         ## id, nome, balance, 
     def __init__(self, name, balance):
         self.card_number = random.randint(1000000, 9999999)
+        self.pin = random.randint(1000000, 9999999)
         self.name = name
         amount = parse_money(balance)
         self.dollars = amount[0]
         self.cents = amount[1]
+        self.salt = random.randint(1000000, 9999999)
+
 
     def withdraw(self, amount_string):
         amount = parse_money(amount_string)
@@ -73,105 +76,15 @@ class Account:
     def get_balance(self):
         balance_string = str(self.dollars) + '.' + str(self.cents)
         return balance_string
-
-
-
-
-def create(accounts, name, amount):
-    response = {'success': True}
-    for key in accounts:
-        if accounts[key].name == name:
-            response = {'success': False}
-    if response['success']:
-        account = Account(name, amount)
-        accounts[account.card_number] = account
-        response['summary'] = {'account': name, 'initial_balance': amount}
-        response['card_number'] = account.card_number
-        response['pin'] = random.randint(1000, 9999)  # Generate PIN
-    return response
-
-def deposit(account, amount):
-    account.deposit(amount)
-    response = {'success': True, 'summary': {'account': account.name, 'deposit': amount}}
-    return response
-
-def withdraw(account, amount_string):
-    amount = parse_money(amount_string)
-    if amount[0] < account.dollars or (amount[0] == account.dollars and amount[1] <= account.cents):
-        account.dollars -= amount[0]
-        account.cents -= amount[1]
-        if account.cents < 0:
-            account.dollars -= 1
-            account.cents += 100
-        return amount  # Return the withdrawn amount
-    else:
-        return False
     
-
-def handle_request(f, conn, counter, accounts):
-    try:
-        ciphertext = conn.recv(BUFFER_SIZE)
-        print("Received ciphertext:", ciphertext)
-        if not ciphertext:
-            print("Received empty ciphertext")
-            return 0
-        data = f.decrypt(ciphertext)
-        print("Decrypted data:", data)
-        request = json.loads(data)
-        if request['counter'] != counter + 2:
-            return 0
-        account = None
-        if request['operation'] == "create":
-            response = create(accounts, request['name'], request['amount'])
-            if response['success']:
-                print("Account created. Name:", response['summary']['account'], "Balance:", response['summary']['initial_balance'], "PIN:", response['pin'])
-        else:
-            account = accounts.get(int(request['card_number']))
-            if account is None:
-                response = {'success': False}
-                return response
-
-            if account.name != request['name']:
-                response = {'success': False}
-                return response
-
-            if request['operation'] == "deposit":
-                response = deposit(account, request['amount'])
-                update_user_info(request['name'], account.get_balance())
-            elif request['operation'] == "withdraw":
-                withdrawn_amount = withdraw(account, request['amount'])
-                if withdrawn_amount:
-                    response = {'success': True, 'summary': {'account': account.name, 'withdrawn': request['amount']}}
-                    update_user_info(request['name'], account.get_balance())
-                else:
-                    response = {'success': False, 'error_message': 'Insufficient funds'}
-            elif request['operation'] == "getinfo":
-                response = getinfo(account)
-            else:
-                response = {'success': False}
-                return response
-
-        response['counter'] = counter + 1  # Increment the counter correctly
-        print("Response dictionary:", response)  # Add debug print
-        response_data = json.dumps(response).encode()
-        print("Response data:", response_data)  # Add debug print
-        ciphertext_response = f.encrypt(response_data)
-        print("Encrypted response:", ciphertext_response)  # Add debug print
-        conn.send(ciphertext_response)
-        print("Response sent successfully")
-        return response
-    except Exception as e:
-        print("Error handling request:", e)
-        return 0
+    def validadeCard(self, resume):
+        resumo_gen =  self.calculateResume()
+        return hmac.compare_digest(resumo_gen, resume)
 
 
-
-def update_user_info(name, balance):
-    filename = name + ".txt"
-    with open(filename, 'w') as file:
-        file.write(balance)
-
-
+    def calculateResume(self ):
+        return gerar_hmac("asdfadsfadsf"+ str(self.pin) + self.nome + str(self.card_number) + str(self.salt))
+    
 
 
 
@@ -219,6 +132,20 @@ def validadeResumeRequest(request):
     return hmac.compare_digest(hmac_gerado, resumoRequest)
 
 
+def create(name, amount):
+    global accounts
+    response = {'success': True}
+    for key in accounts:
+        if accounts[key].name == name:
+            return {'success': False}## caso já exista
+        
+    conta = Account(name, amount)
+    accounts[conta.card_number] = conta
+
+    response['summary'] = {"account": conta.name, "initial_balance": conta.get_balance()}
+    response['cardResume'] = conta.calculateResume
+
+    return response
 
 
 
@@ -269,7 +196,6 @@ if __name__ == '__main__':
         conn.settimeout(10)
         print("Connection established with:", addr)
 
-
         ciphertext = conn.recv(BUFFER_SIZE)
         #print("Received ciphertext:", ciphertext)
         if not ciphertext:
@@ -282,7 +208,7 @@ if __name__ == '__main__':
         type = request['type']
         if type == "genChallange":
             hmac_challange_server = genNewChallange(conn) ## gera e Envia
-        print("\n")
+
         ciphertext = conn.recv(BUFFER_SIZE)
         ##print("Received ciphertext:", ciphertext)
         if not ciphertext:
@@ -294,6 +220,7 @@ if __name__ == '__main__':
         
         if (not validadeResumeRequest(request_str)):
             print("RESUMO INVALIDO")                ########### VER O QUE FAZER AQUI
+
         print ("Resumo Operação Valido")    
 
         dicionario  = json.loads(request_str)
@@ -305,15 +232,20 @@ if __name__ == '__main__':
 
         type = request['type']
         if type == "createAcc":
-            response = create(accounts, request['nome'], request['amount'])
+            response = create(accounts, request['nome'], request['valor'])
             if response['success']:
-                print("Account created. Name:", response['summary']['account'], "Balance:", response['summary']['initial_balance'], "PIN:", response['pin'])
+                print(response['summary'])
+            else:
+                print("erro criar Cartão")
             
         elif type == "deposit":
+            ##Validar Cartão
             pass
         elif type == "levantar":
+            ##Validar Cartão
             pass
         elif type == "consultar":
+            ##Validar Cartão
             pass
         else:
             print("Esta é a opção padrão, caso nenhuma das anteriores se aplique.")
