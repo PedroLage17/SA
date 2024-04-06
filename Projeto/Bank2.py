@@ -15,16 +15,28 @@ BUFFER_SIZE = 1024
 accounts = {}
 auth_file_name = "bank.auth"
 hmac_challange_server=None
+travao = False
 
 chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn" ## validar HMAC Challange
 
-
 def handler(signum, frame):
+    print("Desligando")
+    raise KeyboardInterrupt()
+    
+
+    
+def handler_int(signum, frame):
+    break
+    raise KeyboardInterrupt()
+    print("Desligando")
     sys.exit(0)
 
 
+
+
 def parse_money(money_string):
-    parts = money_string.split('.')
+    money_string = money_string + 0.0
+    parts = str(money_string).split('.')
     amount = [0, 0]
     amount[0] = int(parts[0])
     amount[1] = int(parts[1])
@@ -45,21 +57,21 @@ class Account:
         ## id, nome, balance, 
     def __init__(self, name, balance):
         self.card_number = random.randint(1000000, 9999999)
-        self.pin = random.randint(1000000, 9999999)
+        self.pin = random.randint(1000, 9999)
         self.name = name
         amount = parse_money(balance)
         self.dollars = amount[0]
         self.cents = amount[1]
         self.salt = random.randint(1000000, 9999999)
 
-
+    ####################### MEXER BEGIN
     def withdraw(self, amount_string):
         amount = parse_money(amount_string)
         if amount[0] < self.dollars or (amount[0] == self.dollars and amount[1] <= self.cents):
             self.dollars -= amount[0]
             self.cents -= amount[1]
             if self.cents < 0:
-                self.dollars -= 1
+                self.dollars -= 1 
                 self.cents += 100
             return amount
         else:
@@ -72,18 +84,19 @@ class Account:
         if self.cents >= 100:
             self.dollars += 1
             self.cents -= 100
-
-    def get_balance(self):
+    def get_balance(self):          
         balance_string = str(self.dollars) + '.' + str(self.cents)
         return balance_string
-    
+    ####################### MEXER END
+
+
     def validadeCard(self, resume):
         resumo_gen =  self.calculateResume()
         return hmac.compare_digest(resumo_gen, resume)
 
 
     def calculateResume(self ):
-        return gerar_hmac("asdfadsfadsf"+ str(self.pin) + self.nome + str(self.card_number) + str(self.salt))
+        return gerar_hmac("asdfadsfadsf"+ str(self.pin) + self.name + str(self.card_number) + str(self.salt))
     
 
 
@@ -142,19 +155,20 @@ def create(name, amount):
     conta = Account(name, amount)
     accounts[conta.card_number] = conta
 
-    response['summary'] = {"account": conta.name, "initial_balance": conta.get_balance()}
-    response['cardResume'] = conta.calculateResume
+    response['summary'] = "{\"account\": \"",conta.name,"\", \"initial_balance\": ",conta.get_balance(),"}"
+    response['cardResume'] = conta.calculateResume()
 
     return response
 
 
 
-if __name__ == '__main__':
 
-    
+if __name__ == '__main__':
     ## LOADUP START BANK
+
+    signal.signal(signal.SIGINT, handler_int)
     signal.signal(signal.SIGTERM, handler)
-    signal.signal(signal.SIGINT, handler)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", help="port number", default=4001, type=int)
     parser.add_argument("-s", "--auth_file", help="auth file",default="bank.auth", nargs='?')
@@ -189,9 +203,10 @@ if __name__ == '__main__':
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(('', args.port))
     s.listen(1)
-
+    
     while True:
         print("Ready for connection")
+
         conn, addr = s.accept()
         conn.settimeout(10)
         print("Connection established with:", addr)
@@ -230,11 +245,14 @@ if __name__ == '__main__':
 
 
 
-        type = request['type']
+        type = dicionario['type']
+
         if type == "createAcc":
-            response = create(accounts, request['nome'], request['valor'])
+            response = create(dicionario['nome'], dicionario['valor'])
+            print(response)
             if response['success']:
-                print(response['summary'])
+                sumario = response['summary']
+                print(sumario)
             else:
                 print("erro criar Cartão")
             
@@ -252,4 +270,6 @@ if __name__ == '__main__':
 
         
 
-        conn.close()
+        
+    
+    sys.exit(0)

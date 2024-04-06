@@ -114,12 +114,12 @@ def send(type, nomePessoa, valor = None, cartao = None ):
             'valor': valor,
             'nounce': MatrixChallangeSolved,
             'novoNounce': novoNounce
-        }
+            }
         pedido['resumo'] = gerar_hmac("nadaFoiAlterado" + json.dumps(pedido, sort_keys=True) + "nadaFoiAlterado")
         R = json.dumps(pedido)
         msg = colocarNaCripta(R.encode())
         s.send(msg)
-        print("Request SENT")
+        print("Pedido SENT")
 
 
     except (socket.error, socket.timeout) as e:
@@ -165,4 +165,4 @@ def send(type, nomePessoa, valor = None, cartao = None ):
 
 
 
-send("createAcc","bob")
+send("createAcc","bob", 1010)
