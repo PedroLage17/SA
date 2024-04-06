@@ -6,9 +6,12 @@ import re
 import random
 import math
 import json
-
+import hmac
+import hashlib
 
 BUFFER_SIZE = 1024
+chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn" ## validar HMAC Challange
+
 
 parser = argparse.ArgumentParser()
 group = parser.add_mutually_exclusive_group()
@@ -52,39 +55,80 @@ def leCartao():
 ##### coisas aqui
 
 
-
-def send(json_):
+def tirarDaCripta(ciphertext):
     fernet_obj = Fernet(lerChave())
+    return fernet_obj.decrypt(ciphertext)
+
+
+def colocarNaCripta(plainText):
+    fernet_obj = Fernet(lerChave())
+    return fernet_obj.encrypt(plainText)
+
+def gerar_hmac(mensagem):
+    global chave_secreta
+    chave_secreta_bytes = bytes(chave_secreta, 'utf-8')
+    mensagem_bytes = bytes(mensagem, 'utf-8')
+    hmac_objeto = hmac.new(chave_secreta_bytes, mensagem_bytes, hashlib.sha256)
+    hmac_gerado = hmac_objeto.hexdigest()
+    return hmac_gerado
+
+def solveChallange(puzzle):
+    global chave_secreta
+    try:
+        desafio = "Cifrar"+str(puzzle+23634562)+"Criptar"
+        print(desafio)
+        hmac_Client = gerar_hmac(desafio)
+        # print("puzzle resolvido")
+        # print("\n\n\n" + hmac_Client+ "\n\n\n")
+        return hmac_Client
+    except Exception as e:
+        print("Authentication failed:", e)
+        return 0
+
+
+def send(type, nomePessoa, valor = None, cartao = None ):
+    getChallange = {'type': "genChallange"}
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(10)
     try:
         s.connect((args.ip, args.port))
-    except (socket.error, socket.timeout) as e:
-        s.close()
-        sys.exit(63)
-    ## ENVIAR
-    json_string1 = json.dumps(json_)
-    print("Sending authentication request:", json_string1)  # Add this line for debugging
-    try:
-        msg = fernet_obj.encrypt(json_string1.encode())
+        ## ENVIAR RequestChallange
+        json_string1 = json.dumps(getChallange)
+        print("Sending authentication request:", json_string1)  # Add this line for debugging
+        msg = colocarNaCripta(json_string1.encode())
         s.send(msg)
+        json_string2 = s.recv(1024)##RECEBER o challange
+        print("Received ciphertext:", json_string2) 
+            ##decifrar
+        data = tirarDaCripta(json_string2)
+        request = json.loads(data)
+        MatrixChallange = request['MatrixChallange']
+        print(MatrixChallange)
+        MatrixChallangeSolved = solveChallange(MatrixChallange)
+        # createAcc deposit levantar consultar # types possiveis
+        novoNounce = random.randint(100000000, 999999999)
+        pedido = {
+            'type': type,
+            'nome': nomePessoa,
+            'cartao': cartao,
+            'valor': valor,
+            'nounce': MatrixChallangeSolved,
+            'novoNounce': novoNounce
+        }
+        pedido['resumo'] = gerar_hmac("nadaFoiAlterado" + json.dumps(pedido, sort_keys=True) + "nadaFoiAlterado")
+        R = json.dumps(pedido)
+        msg = colocarNaCripta(R.encode())
+        s.send(msg)
+        print("Request SENT")
+
+
     except (socket.error, socket.timeout) as e:
         s.close()
         sys.exit(63)
 
 
-    ##RECEBER
-    try:
-        json_string2 = s.recv(1024)
-    except (socket.error, socket.timeout) as e:
-        s.close()
-        sys.exit(63)
 
-    print("Received ciphertext:", json_string2)  # Add this line to print the received ciphertext
 
-    ##decifrar
-    data = fernet_obj.decrypt(json_string2)
-    print("Decrypted data:", data)
 
 
 
@@ -120,5 +164,5 @@ def send(json_):
 #     operation = 'getinfo'
 
 
-json_obj1 = {'type': "genChallange"}
-send(json_obj1)
+
+send("createAcc","bob")

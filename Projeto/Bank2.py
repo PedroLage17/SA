@@ -13,7 +13,7 @@ import hashlib
 
 BUFFER_SIZE = 1024
 accounts = {}
-
+auth_file_name = "bank.auth"
 hmac_challange_server=None
 
 chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn" ## validar HMAC Challange
@@ -30,6 +30,14 @@ def parse_money(money_string):
     amount[1] = int(parts[1])
     return amount
 
+def lerChave():
+    global auth_file_name
+    try:
+        with open(auth_file_name, 'rb') as f_auth:
+            return f_auth.read().strip()
+    except IOError as e:
+        print("Error reading authentication file:", e)  # Add debug print
+        sys.exit(255)
 
 
 class Account:
@@ -167,11 +175,15 @@ def update_user_info(name, balance):
 
 
 
-def decript(ciphertext):
-    pass
+def tirarDaCripta(ciphertext):
+    fernet_obj = Fernet(lerChave())
+    return fernet_obj.decrypt(ciphertext)
 
-def ColocarNaCripta(plainText):
-    pass
+
+def colocarNaCripta(plainText):
+    fernet_obj = Fernet(lerChave())
+    return fernet_obj.encrypt(plainText)
+
 
 
 def gerar_hmac(mensagem):
@@ -184,24 +196,26 @@ def gerar_hmac(mensagem):
 
 def genNewChallange(conn):
     global chave_secreta
-    try:
-        desafio = random.randint(100000000, 999999999)
-        json = json.dumps({'MatrixChallange': desafio}).encode()
-        cypherText = f.encrypt(json)
-        conn.send(cypherText)
-        desafio = "Cifrar"+(desafio+23634562)+"Criptar"
-        mensagem_bytes = bytes(desafio, 'utf-8')
-        hmac_Server = gerar_hmac( mensagem_bytes, hashlib.sha256)
-        return hmac_Server
-    except Exception as e:
-        print("Authentication failed:", e)
-        return 0
+    
+    desafio = random.randint(100000000, 999999999)
+    json_ = json.dumps({'MatrixChallange': desafio})
+    cypherText = colocarNaCripta(json_.encode("utf-8"))
+    conn.send(cypherText)
+
+    desafio = "Cifrar"+str(desafio+23634562)+"Criptar"
+    #print(desafio)
+    hmac_Server = gerar_hmac(desafio)
+
+    return hmac_Server
+   
 
 def validateMatrixChallange(hmacClient, hmacServer):
     return hmac.compare_digest(hmacClient, hmacServer)
 
-def validadeResumeRequest(resumoRequest, request):
-    hmac_gerado = gerar_hmac(request+"nadaFoiAlterado")
+def validadeResumeRequest(request):
+    request_dict = json.loads(request)
+    resumoRequest = request_dict.pop('resumo')
+    hmac_gerado = gerar_hmac("nadaFoiAlterado" + json.dumps(request_dict, sort_keys=True) + "nadaFoiAlterado")
     return hmac.compare_digest(hmac_gerado, resumoRequest)
 
 
@@ -227,8 +241,8 @@ if __name__ == '__main__':
 
     pattern = re.compile(r'[_\-\.0-9a-z]{1,255}')
 
-    auth_file_name = "bank.auth"
-    if args.auth_file:
+    
+    if args.auth_file and False: ## REMOVER FALSE
         if os.path.isfile(args.auth_file):## se ficheiro existe
             sys.exit(255)
         if not pattern.match(args.auth_file): ## se nome ficheiro for incorrecto
@@ -242,9 +256,6 @@ if __name__ == '__main__':
         auth_file = open(auth_file_name, 'wb')
         auth_file.write(key)
         auth_file.close()
-
-        f = Fernet(key)
-
     ## FIM LOADUP
 
     ## cria connection
@@ -253,24 +264,51 @@ if __name__ == '__main__':
     s.listen(1)
 
     while True:
+        print("Ready for connection")
         conn, addr = s.accept()
         conn.settimeout(10)
         print("Connection established with:", addr)
 
 
         ciphertext = conn.recv(BUFFER_SIZE)
-        print("Received ciphertext:", ciphertext)
+        #print("Received ciphertext:", ciphertext)
         if not ciphertext:
             print("Received empty ciphertext") ############### VER O QUE FAZER AQUI
-        data = f.decrypt(ciphertext)
+        
+        data = tirarDaCripta(ciphertext)
         print("Decrypted data:", data)
 
         request = json.loads(data)
         type = request['type']
         if type == "genChallange":
-            hmac_challange_server = genNewChallange(conn)
-        elif type == "createAcc":
-            pass
+            hmac_challange_server = genNewChallange(conn) ## gera e Envia
+        print("\n")
+        ciphertext = conn.recv(BUFFER_SIZE)
+        ##print("Received ciphertext:", ciphertext)
+        if not ciphertext:
+            print("Received empty ciphertext") ############### VER O QUE FAZER AQUI
+
+        data = tirarDaCripta(ciphertext)
+        print("Decrypted data:", data, end="\n\n")
+        request_str = data.decode('utf-8')
+        
+        if (not validadeResumeRequest(request_str)):
+            print("RESUMO INVALIDO")                ########### VER O QUE FAZER AQUI
+        print ("Resumo Operação Valido")    
+
+        dicionario  = json.loads(request_str)
+        if not(validateMatrixChallange(dicionario['nounce'], hmac_challange_server)):
+            print("NOUNCE INVALIDO")                 ########### VER O QUE FAZER AQUI
+        print ("Nounce Valido")
+
+
+
+        type = request['type']
+        if type == "createAcc":
+            response = create(accounts, request['nome'], request['amount'])
+            if response['success']:
+                print("Account created. Name:", response['summary']['account'], "Balance:", response['summary']['initial_balance'], "PIN:", response['pin'])
+            
         elif type == "deposit":
             pass
         elif type == "levantar":
@@ -282,31 +320,4 @@ if __name__ == '__main__':
 
         
 
-        result = validateMatrixChallange(MatrixChallange, token)
-
-
-
-
-
-
-        if result:
-            response = handle_request(f, conn, counter, accounts)
-            if response:
-                print("Response generated:", response)
-                ciphertext = f.encrypt(json.dumps(response).encode())
-                try:
-                    conn.send(ciphertext)
-                    print("Response sent successfully")
-                except Exception as e:
-                    print("Error sending response to ATM:", e)
-                try:
-                    print(json.dumps(response['summary']))
-                except KeyError:
-                    pass
-            else:
-                print("No response generated")
-                print("protocol_error")
-        else:
-            print("Authentication failed")
-            print("protocol_error")
         conn.close()
