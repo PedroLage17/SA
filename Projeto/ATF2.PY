@@ -53,9 +53,8 @@ def leCartao():
 
 
 
-def send(json):
-    fernet_obj = lerChave()
-    # Now you can proceed to establish a connection with the bank
+def send(json_):
+    fernet_obj = Fernet(lerChave())
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(10)
     try:
@@ -63,13 +62,12 @@ def send(json):
     except (socket.error, socket.timeout) as e:
         s.close()
         sys.exit(63)
-
-
     ## ENVIAR
-    json_string1 = json.dumps(json)
+    json_string1 = json.dumps(json_)
     print("Sending authentication request:", json_string1)  # Add this line for debugging
     try:
-        s.send(fernet_obj.encrypt(json_string1.encode()))
+        msg = fernet_obj.encrypt(json_string1.encode())
+        s.send(msg)
     except (socket.error, socket.timeout) as e:
         s.close()
         sys.exit(63)
@@ -82,40 +80,45 @@ def send(json):
         s.close()
         sys.exit(63)
 
-    # Add debug print to print the received ciphertext
     print("Received ciphertext:", json_string2)  # Add this line to print the received ciphertext
 
+    ##decifrar
+    data = fernet_obj.decrypt(json_string2)
+    print("Decrypted data:", data)
 
 
 
-
-## verifica cartao
-if args.cardfile == None:
-    args.cardfile = args.account + ".card"
-
-
-## verifica Argumentos
-if args.getinfo == False:
-    if args.balance != None:
-        is_valid_amount(args.balance)
-    elif args.deposit != None:
-        is_valid_amount(args.deposit)
-    else:
-        is_valid_amount(args.withdraw)
-
-try:
-    with open(args.authfile, 'rb') as f_auth:
-        secret_key = f_auth.read().strip()
-except IOError as e:
-    sys.exit(255)
+# ## verifica cartao
+# if args.cardfile == None:
+#     args.cardfile = args.account + ".card"
 
 
+# ## verifica Argumentos
+# if args.getinfo == False:
+#     if args.balance != None:
+#         is_valid_amount(args.balance)
+#     elif args.deposit != None:
+#         is_valid_amount(args.deposit)
+#     else:
+#         is_valid_amount(args.withdraw)
 
-if args.balance != None:
-    operation = 'create'
-elif args.deposit != None:
-    operation = 'deposit'
-elif args.withdraw != None:
-    operation = 'withdraw'
-else:
-    operation = 'getinfo'
+# try:
+#     with open(args.authfile, 'rb') as f_auth:
+#         secret_key = f_auth.read().strip()
+# except IOError as e:
+#     sys.exit(255)
+
+
+
+# if args.balance != None:
+#     operation = 'create'
+# elif args.deposit != None:
+#     operation = 'deposit'
+# elif args.withdraw != None:
+#     operation = 'withdraw'
+# else:
+#     operation = 'getinfo'
+
+
+json_obj1 = {'type': "genChallange"}
+send(json_obj1)
