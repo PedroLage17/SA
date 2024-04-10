@@ -76,15 +76,30 @@ def gerar_hmac(mensagem):
 def solveChallange(puzzle):
     global chave_secreta
     try:
-        desafio = "Cifrar"+str(puzzle+23634562)+"Criptar"
-        print(desafio)
+        desafio = "Cifrar"+str(int(puzzle)+23634562)+"Criptar"
         hmac_Client = gerar_hmac(desafio)
-        # print("puzzle resolvido")
-        # print("\n\n\n" + hmac_Client+ "\n\n\n")
         return hmac_Client
     except Exception as e:
         print("Authentication failed:", e)
         return 0
+
+def validateMatrixChallange(hmacClient, hmacServer):
+    return hmac.compare_digest(hmacClient, hmacServer)
+
+
+def validadeResumeRequest(request):
+    request_dict = json.loads(request)
+    resumoRequest = request_dict.pop('resumo')
+    hmac_gerado = gerar_hmac("nadaFoiAlterado" + json.dumps(request_dict, sort_keys=True) + "nadaFoiAlterado")
+    return hmac.compare_digest(hmac_gerado, resumoRequest)
+
+def genNewChallange():
+    global chave_secreta
+    desafio = random.randint(100000000, 999999999)
+    desafioResolvido = "Cifrar" + str(desafio + 23634562) + "Criptar"
+    hmac_ATM = gerar_hmac(desafioResolvido)
+
+    return hmac_ATM, desafio
 
 
 def send(type, nomePessoa, valor = None, cartao = None ):
@@ -107,20 +122,42 @@ def send(type, nomePessoa, valor = None, cartao = None ):
         print(MatrixChallange)
         MatrixChallangeSolved = solveChallange(MatrixChallange)
         # createAcc deposit levantar consultar # types possiveis
-        novoNounce = random.randint(100000000, 999999999)
+        hmac_ATM, desafinovo = genNewChallange()
         pedido = {
             'type': type,
             'nome': nomePessoa,
             'cartao': cartao,
             'valor': valor,
             'nounce': MatrixChallangeSolved,
-            'novoNounce': novoNounce
+            'novoNounce': desafinovo
         }
         pedido['resumo'] = gerar_hmac("nadaFoiAlterado" + json.dumps(pedido, sort_keys=True) + "nadaFoiAlterado")
         R = json.dumps(pedido)
         msg = colocarNaCripta(R.encode())
-        s.send(msg)
+        s.send(msg) ## envio do pedido
         print("Pedido SENT")
+
+
+
+        ## RECEBER A RESPOSTA
+        json_string2 = s.recv(1024)
+        ##decifrar
+        data = tirarDaCripta(json_string2)
+   
+
+
+        if (not validadeResumeRequest(data)):
+            print("RESUMO INVALIDO")                ########### VER O QUE FAZER AQUI
+        print ("Resumo Operação Valido")    
+        dicionario  = json.loads(data)
+        if not(validateMatrixChallange(dicionario['nounce'], hmac_ATM)):
+            print("NOUNCE INVALIDO")                 ########### VER O QUE FAZER AQUI
+        print ("Nounce Valido")
+
+        return dicionario ## a função acaba aqui e retorna a resposta do banco
+
+
+
 
 
     except (socket.error, socket.timeout) as e:
@@ -133,17 +170,20 @@ def verificar_existencia_arquivo(caminho_arquivo):
     return os.path.exists(caminho_arquivo)
 
 def criar_cartao(args):
-    card_num = random.randint(1000000, 9999999)
-    pin = random.randint(1000, 9999)
-    # Definir user_balance antes de escrever no arquivo
+
+    ## verificar nomes, todas as ceninnhas a verificar
     if args.balance is not None:  # Check if balance is provided
         user_balance = float(args.balance)
     else:
         user_balance = 0  # Default balance if not provided
-    with open(args.cardfile, 'w') as f:
-        f.write(json.dumps({'account': args.account, 'card_number': card_num, 'balance': user_balance, 'pin': pin}))
-    print("Cartão criado com sucesso.")
 
+    resposta = send("createAcc", args.account ,user_balance)
+
+    with open(args.cardfile, 'w') as f:
+        f.write(resposta['param1']) ## vem o primeiro parametro, neste caso o resumo do cartão 
+
+    print(resposta['param2']) ## vem o segundo parametro, neste caso o sumario 
+    
 
 def ler_cartao(args):
     try:
@@ -185,26 +225,36 @@ def withdraw_from_card(args):
 
 def deposit_to_card(args):
     try:
-        with open(args.cardfile, 'r+') as f_card:
-            card_data = json.load(f_card)
-            card_num = int(card_data.get('card_number', 0))
-            user_balance = float(card_data.get('balance', 0))
-            pin = int(card_data.get('pin', 0))
-            print("Cartão encontrado. Número do cartão:", card_num)
-            # Verificar se há uma quantidade válida de depósito
-            if args.deposit is not None:
-                deposit_amount = float(args.deposit)
-                if deposit_amount > 0:
-                    user_balance += deposit_amount
-                    card_data['balance'] = user_balance  # Atualizar o saldo no dicionário
-                    f_card.seek(0)  # Voltar ao início do arquivo
-                    f_card.truncate()  # Limpar o conteúdo existente
-                    json.dump(card_data, f_card)  # Escrever o novo conteúdo
-                    print("Depósito de", args.deposit, "realizado com sucesso.")
-                else:
-                    print("O valor do depósito deve ser maior que zero.")
-            else:
-                print("Nenhuma quantia especificada para depósito.")
+        with open(args.cardfile, 'r') as f_card:
+            card_data = f_card.read()
+            # card_num = int(card_data.get('card_number', 0))
+            # user_balance = float(card_data.get('balance', 0))
+            # pin = int(card_data.get('pin', 0))
+            # print("Cartão encontrado. Número do cartão:", card_num)
+            # # Verificar se há uma quantidade válida de depósito
+            # if args.deposit is not None:
+            #     deposit_amount = float(args.deposit)
+            #     if deposit_amount > 0:
+            #         user_balance += deposit_amount
+            #         card_data['balance'] = user_balance  # Atualizar o saldo no dicionário
+            #         f_card.seek(0)  # Voltar ao início do arquivo
+            #         f_card.truncate()  # Limpar o conteúdo existente
+            #         json.dump(card_data, f_card)  # Escrever o novo conteúdo
+            #         print("Depósito de", args.deposit, "realizado com sucesso.")
+            #     else:
+            #         print("O valor do depósito deve ser maior que zero.")
+            # else:
+            #     print("Nenhuma quantia especificada para depósito.")
+
+
+                    #SEND( OPERATION, NOME_PESSOA, VALUE, CONTEUDO_CARTÃO_PESSOA )
+        resposta = send("deposit", args.account ,valor, card_data)
+
+        print(resposta['param1'])
+        print(resposta['param2'])
+        print(resposta['param3'])
+
+
     except IOError as e:
         print("O arquivo do cartão não existe.")
 
@@ -218,6 +268,15 @@ def get_account_info(args):
             print("Número do Cartão:", card_data.get('card_number'))
             print("Saldo:", card_data.get('balance'))
             print("PIN:", card_data.get('pin'))
+            respsta = send("getinfo", args.nome , 1, card_data)
+
+
+            #SEND( OPERATION, NOME_PESSOA, VALUE, CONTEUDO_CARTÃO_PESSOA )
+            resposta = send("deposit", args.account ,valor, card_data)
+
+            print(resposta['param1'])
+            print(resposta['param2'])
+            print(resposta['param3'])
     except FileNotFoundError:
         print("O arquivo do cartão não existe.")
 
@@ -225,7 +284,7 @@ def get_account_info(args):
 
 def main():
     if args.getinfo:
-        get_account_info(args)
+        get_account_info( args)
     elif args.deposit is not None:
         deposit_to_card(args)
     elif args.withdraw is not None:

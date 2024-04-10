@@ -107,7 +107,7 @@ def colocarNaCripta(plainText):
     fernet_obj = Fernet(lerChave())
     return fernet_obj.encrypt(plainText)
 
-
+## não mexer
 def gerar_hmac(mensagem):
     global chave_secreta
     chave_secreta_bytes = bytes(chave_secreta, 'utf-8')
@@ -116,7 +116,7 @@ def gerar_hmac(mensagem):
     hmac_gerado = hmac_objeto.hexdigest()
     return hmac_gerado
 
-
+## nao mexer
 def genNewChallange(conn):
     global chave_secreta
 
@@ -146,31 +146,48 @@ def create(name, amount):
     global accounts
     response = {'success': True}
 
-    # Verifica se o usuário já foi criado
     for card_number, conta in accounts.items():
         if conta.name == name:
             return {'success': False, 'message': 'User already exists'}
 
-    # Verifica se o arquivo do cartão já existe
-    card_file = f"{name}.card"
-    if os.path.exists(card_file):
-        return {'success': False, 'message': 'Card file already exists'}
-
     conta = Account(name, amount)
     accounts[conta.card_number] = conta
 
-    response['summary'] = "{\"account\": \"", conta.name, "\", \"initial_balance\": ", conta.get_balance(), "}"
+    response['summary'] = "{\"account\": \"", conta.name, "\", \"initial_balance\": ", str(conta.get_balance()), "}"
     response['cardResume'] = conta.calculateResume()
 
-    # Salva temporariamente as informações do cartão em um arquivo
-    with open(card_file, 'w') as f:
-        json.dump({
-            'card_number': conta.card_number,
-            'pin': conta.pin,
-            'balance': conta.get_balance()
-        }, f)
-
     return response
+
+##não mexer
+def solveChallange(puzzle):
+    global chave_secreta
+    try:
+        desafio = "Cifrar"+str(int(puzzle)+23634562)+"Criptar"
+        hmac_Client = gerar_hmac(desafio)
+        return hmac_Client
+    except Exception as e:
+        print("Authentication failed:", e)
+        return 0
+    
+
+## não precisa mudar
+def respostaParaATM(nouncePorResolver, param1 = None, param2 = None, param3= None):
+    nounceResolvido =  solveChallange(nouncePorResolver)
+
+    resposta = {
+        'param1': param1,
+        'param2': param2,
+        'param3': param3,
+        'nounce': nounceResolvido,
+    }
+
+    resposta['resumo'] = gerar_hmac("nadaFoiAlterado" + json.dumps(resposta, sort_keys=True) + "nadaFoiAlterado")
+    R = json.dumps(resposta)
+    msg = colocarNaCripta(R.encode())
+    conn.send(msg) ## envio da Resposta
+    return 0
+
+
 
 
 
@@ -259,21 +276,29 @@ if __name__ == '__main__':
 
         if type == "createAcc":
             response = create(dicionario['nome'], dicionario['valor'])
-            print(response)
+            print(response) ## temporario
             if response['success']:
+
                 sumario = response['summary']
+                resumoCartAo = response['cardResume']
+                respostaParaATM (dicionario['novoNounce'], resumoCartAo, sumario, "A vizinha" )
+
                 print(sumario)
             else:
                 print("erro criar Cartão")
             
         elif type == "deposit":
-            ##Validar Cartão
-            pass
+            ## Do some magic
+            respostaParaATM (dicionario['novoNounce'], "Depositou o que lhe apeteceu", "outra coisa que quero enviar", "outra coisa que me apeteça tambem")
+
+
         elif type == "levantar":
-            ##Validar Cartão
-            pass
+            ## Do some magic
+            respostaParaATM (dicionario['novoNounce'], "LEvantou o que quis")
+
+
         elif type == "consultar":
-            ##Validar Cartão
-            pass
+            ## Do some magic
+            respostaParaATM (dicionario['novoNounce'], "Tá falido" )
         else:
             print("Esta é a opção padrão, caso nenhuma das anteriores se aplique.")
