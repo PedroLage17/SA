@@ -99,8 +99,8 @@ def send(type, nomePessoa, valor = None, cartao = None ):
         msg = colocarNaCripta(json_string1.encode())
         s.send(msg)
         json_string2 = s.recv(1024)##RECEBER o challange
-        print("Received ciphertext:", json_string2) 
-            ##decifrar
+        print("Received ciphertext:", json_string2)
+        ##decifrar
         data = tirarDaCripta(json_string2)
         request = json.loads(data)
         MatrixChallange = request['MatrixChallange']
@@ -115,7 +115,7 @@ def send(type, nomePessoa, valor = None, cartao = None ):
             'valor': valor,
             'nounce': MatrixChallangeSolved,
             'novoNounce': novoNounce
-            }
+        }
         pedido['resumo'] = gerar_hmac("nadaFoiAlterado" + json.dumps(pedido, sort_keys=True) + "nadaFoiAlterado")
         R = json.dumps(pedido)
         msg = colocarNaCripta(R.encode())
@@ -128,53 +128,22 @@ def send(type, nomePessoa, valor = None, cartao = None ):
         sys.exit(63)
 
 
-
-
-
-
-
-# ## verifica cartao
-# if args.cardfile == None:
-#     args.cardfile = args.account + ".card"
-
-
-# ## verifica Argumentos
-# if args.getinfo == False:
-#     if args.balance != None:
-#         is_valid_amount(args.balance)
-#     elif args.deposit != None:
-#         is_valid_amount(args.deposit)
-#     else:
-#         is_valid_amount(args.withdraw)
-
-# try:
-#     with open(args.authfile, 'rb') as f_auth:
-#         secret_key = f_auth.read().strip()
-# except IOError as e:
-#     sys.exit(255)
-
-
-
-# if args.balance != None:
-#     operation = 'create'
-# elif args.deposit != None:
-#     operation = 'deposit'
-# elif args.withdraw != None:
-#     operation = 'withdraw'
-# else:
-#     operation = 'getinfo'
-
 ###CRIAÇÂO DO CARTÃO
 def verificar_existencia_arquivo(caminho_arquivo):
     return os.path.exists(caminho_arquivo)
 
 def criar_cartao(args):
     card_num = random.randint(1000000, 9999999)
-    user_balance = float(args.balance)
     pin = random.randint(1000, 9999)
+    # Definir user_balance antes de escrever no arquivo
+    if args.balance is not None:  # Check if balance is provided
+        user_balance = float(args.balance)
+    else:
+        user_balance = 0  # Default balance if not provided
     with open(args.cardfile, 'w') as f:
-        f.write(json.dumps({'account': args.account, 'card_number': card_num, 'balance': args.balance, 'pin': pin}))
+        f.write(json.dumps({'account': args.account, 'card_number': card_num, 'balance': user_balance, 'pin': pin}))
     print("Cartão criado com sucesso.")
+
 
 def ler_cartao(args):
     try:
@@ -188,16 +157,87 @@ def ler_cartao(args):
     except IOError as e:
         print("O arquivo do cartão não existe.")
 
+def withdraw_from_card(args):
+    try:
+        with open(args.cardfile, 'r+') as f_card:
+            card_data = json.load(f_card)
+            card_num = int(card_data.get('card_number', 0))
+            user_balance = float(card_data.get('balance', 0))
+            pin = int(card_data.get('pin', 0))
+            print("Cartão encontrado. Número do cartão:", card_num)
+            # Verificar se há saldo suficiente para a retirada
+            if args.withdraw is not None:
+                withdraw_amount = float(args.withdraw)
+                if withdraw_amount <= user_balance:
+                    user_balance -= withdraw_amount
+                    card_data['balance'] = user_balance  # Atualizar o saldo no dicionário
+                    f_card.seek(0)  # Voltar ao início do arquivo
+                    f_card.truncate()  # Limpar o conteúdo existente
+                    json.dump(card_data, f_card)  # Escrever o novo conteúdo
+                    print("Retirada de", args.withdraw, "realizada com sucesso.")
+                else:
+                    print("Saldo insuficiente para a retirada.")
+            else:
+                print("Nenhuma quantia especificada para retirada.")
+    except IOError as e:
+        print("O arquivo do cartão não existe.")
+
+
+def deposit_to_card(args):
+    try:
+        with open(args.cardfile, 'r+') as f_card:
+            card_data = json.load(f_card)
+            card_num = int(card_data.get('card_number', 0))
+            user_balance = float(card_data.get('balance', 0))
+            pin = int(card_data.get('pin', 0))
+            print("Cartão encontrado. Número do cartão:", card_num)
+            # Verificar se há uma quantidade válida de depósito
+            if args.deposit is not None:
+                deposit_amount = float(args.deposit)
+                if deposit_amount > 0:
+                    user_balance += deposit_amount
+                    card_data['balance'] = user_balance  # Atualizar o saldo no dicionário
+                    f_card.seek(0)  # Voltar ao início do arquivo
+                    f_card.truncate()  # Limpar o conteúdo existente
+                    json.dump(card_data, f_card)  # Escrever o novo conteúdo
+                    print("Depósito de", args.deposit, "realizado com sucesso.")
+                else:
+                    print("O valor do depósito deve ser maior que zero.")
+            else:
+                print("Nenhuma quantia especificada para depósito.")
+    except IOError as e:
+        print("O arquivo do cartão não existe.")
+
+
+def get_account_info(args):
+    try:
+        with open(args.cardfile, 'r') as f_card:
+            card_data = json.load(f_card)
+            print("Informações da Conta:")
+            print("Nome do Cliente:", card_data.get('account'))
+            print("Número do Cartão:", card_data.get('card_number'))
+            print("Saldo:", card_data.get('balance'))
+            print("PIN:", card_data.get('pin'))
+    except FileNotFoundError:
+        print("O arquivo do cartão não existe.")
+
+
+
 def main():
-    if verificar_existencia_arquivo(args.cardfile):
+    if args.getinfo:
+        get_account_info(args)
+    elif args.deposit is not None:
+        deposit_to_card(args)
+    elif args.withdraw is not None:
+        withdraw_from_card(args)
+    elif verificar_existencia_arquivo(args.cardfile):
         print("O arquivo do cartão já existe.")
         ler_cartao(args)
-    else:
+    elif args.balance is not None:
         print("O arquivo do cartão não existe. Criando...")
         criar_cartao(args)
+    else:
+        print("O arquivo do cartão não existe.")
 
 if __name__ == "__main__":
     main()
-
-
-###send("createAcc","bob", 1010)

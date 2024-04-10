@@ -14,23 +14,21 @@ import hashlib
 BUFFER_SIZE = 1024
 accounts = {}
 auth_file_name = "bank.auth"
-hmac_challange_server=None
+hmac_challange_server = None
 travao = False
 
-chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn" ## validar HMAC Challange
+chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn"  ## validar HMAC Challange
+
 
 def handler(signum, frame):
     print("Desligando")
     raise KeyboardInterrupt()
-    
 
-    
+
 def handler_int(signum, frame):
     raise KeyboardInterrupt()
     print("Desligando")
     sys.exit(0)
-
-
 
 
 def parse_money(money_string):
@@ -40,6 +38,7 @@ def parse_money(money_string):
     amount[0] = int(parts[0])
     amount[1] = int(parts[1])
     return amount
+
 
 def lerChave():
     global auth_file_name
@@ -53,7 +52,7 @@ def lerChave():
 
 class Account:
     ## Criar novo cartao
-        ## id, nome, balance, 
+    ## id, nome, balance,
     def __init__(self, name, balance):
         self.card_number = random.randint(1000000, 9999999)
         self.pin = random.randint(1000, 9999)
@@ -64,13 +63,14 @@ class Account:
         self.salt = random.randint(1000000, 9999999)
 
     ####################### MEXER BEGIN
+
     def withdraw(self, amount_string):
         amount = parse_money(amount_string)
         if amount[0] < self.dollars or (amount[0] == self.dollars and amount[1] <= self.cents):
             self.dollars -= amount[0]
             self.cents -= amount[1]
             if self.cents < 0:
-                self.dollars -= 1 
+                self.dollars -= 1
                 self.cents += 100
             return amount
         else:
@@ -83,21 +83,19 @@ class Account:
         if self.cents >= 100:
             self.dollars += 1
             self.cents -= 100
-    def get_balance(self):          
+
+    def get_balance(self):
         balance_string = str(self.dollars) + '.' + str(self.cents)
         return balance_string
+
     ####################### MEXER END
 
-
     def validadeCard(self, resume):
-        resumo_gen =  self.calculateResume()
+        resumo_gen = self.calculateResume()
         return hmac.compare_digest(resumo_gen, resume)
 
-
-    def calculateResume(self ):
-        return gerar_hmac("asdfadsfadsf"+ str(self.pin) + self.name + str(self.card_number) + str(self.salt))
-    
-
+    def calculateResume(self):
+        return gerar_hmac("asdfadsfadsf" + str(self.pin) + self.name + str(self.card_number) + str(self.salt))
 
 
 def tirarDaCripta(ciphertext):
@@ -110,7 +108,6 @@ def colocarNaCripta(plainText):
     return fernet_obj.encrypt(plainText)
 
 
-
 def gerar_hmac(mensagem):
     global chave_secreta
     chave_secreta_bytes = bytes(chave_secreta, 'utf-8')
@@ -119,23 +116,24 @@ def gerar_hmac(mensagem):
     hmac_gerado = hmac_objeto.hexdigest()
     return hmac_gerado
 
+
 def genNewChallange(conn):
     global chave_secreta
-    
+
     desafio = random.randint(100000000, 999999999)
     json_ = json.dumps({'MatrixChallange': desafio})
     cypherText = colocarNaCripta(json_.encode("utf-8"))
     conn.send(cypherText)
 
-    desafio = "Cifrar"+str(desafio+23634562)+"Criptar"
-    #print(desafio)
+    desafio = "Cifrar" + str(desafio + 23634562) + "Criptar"
     hmac_Server = gerar_hmac(desafio)
 
     return hmac_Server
-   
+
 
 def validateMatrixChallange(hmacClient, hmacServer):
     return hmac.compare_digest(hmacClient, hmacServer)
+
 
 def validadeResumeRequest(request):
     request_dict = json.loads(request)
@@ -143,22 +141,36 @@ def validadeResumeRequest(request):
     hmac_gerado = gerar_hmac("nadaFoiAlterado" + json.dumps(request_dict, sort_keys=True) + "nadaFoiAlterado")
     return hmac.compare_digest(hmac_gerado, resumoRequest)
 
-
+## Cria cartão e verifica se já existe e se o user tbm já existe
 def create(name, amount):
     global accounts
     response = {'success': True}
-    for key in accounts:
-        if accounts[key].name == name:
-            return {'success': False}## caso já exista
-        
+
+    # Verifica se o usuário já foi criado
+    for card_number, conta in accounts.items():
+        if conta.name == name:
+            return {'success': False, 'message': 'User already exists'}
+
+    # Verifica se o arquivo do cartão já existe
+    card_file = f"{name}.card"
+    if os.path.exists(card_file):
+        return {'success': False, 'message': 'Card file already exists'}
+
     conta = Account(name, amount)
     accounts[conta.card_number] = conta
 
-    response['summary'] = "{\"account\": \"",conta.name,"\", \"initial_balance\": ",conta.get_balance(),"}"
+    response['summary'] = "{\"account\": \"", conta.name, "\", \"initial_balance\": ", conta.get_balance(), "}"
     response['cardResume'] = conta.calculateResume()
 
-    return response
+    # Salva temporariamente as informações do cartão em um arquivo
+    with open(card_file, 'w') as f:
+        json.dump({
+            'card_number': conta.card_number,
+            'pin': conta.pin,
+            'balance': conta.get_balance()
+        }, f)
 
+    return response
 
 
 
@@ -170,7 +182,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", help="port number", default=4001, type=int)
-    parser.add_argument("-s", "--auth_file", help="auth file",default="bank.auth", nargs='?')
+    parser.add_argument("-s", "--auth_file", help="auth file", default="bank.auth", nargs='?')
 
     args = parser.parse_args()
 
@@ -181,11 +193,10 @@ if __name__ == '__main__':
 
     pattern = re.compile(r'[_\-\.0-9a-z]{1,255}')
 
-    
-    if args.auth_file and False: ## REMOVER FALSE
-        if os.path.isfile(args.auth_file):## se ficheiro existe
+    if args.auth_file:  ## REMOVER FALSE
+        if os.path.isfile(args.auth_file):  ## se ficheiro existe
             sys.exit(255)
-        if not pattern.match(args.auth_file): ## se nome ficheiro for incorrecto
+        if not pattern.match(args.auth_file):  ## se nome ficheiro for incorrecto
             parser.print_help()
             print(r"file name must match [_\-\.0-9a-z]{1,255}")
             sys.exit(255)
@@ -266,9 +277,3 @@ if __name__ == '__main__':
             pass
         else:
             print("Esta é a opção padrão, caso nenhuma das anteriores se aplique.")
-
-        
-
-        
-    
-    sys.exit(0)
