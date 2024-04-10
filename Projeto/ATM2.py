@@ -8,6 +8,7 @@ import math
 import json
 import hmac
 import hashlib
+import os
 
 BUFFER_SIZE = 1024
 chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn" ## validar HMAC Challange
@@ -163,6 +164,40 @@ def send(type, nomePessoa, valor = None, cartao = None ):
 # else:
 #     operation = 'getinfo'
 
+###CRIAÇÂO DO CARTÃO
+def verificar_existencia_arquivo(caminho_arquivo):
+    return os.path.exists(caminho_arquivo)
+
+def criar_cartao(args):
+    card_num = random.randint(1000000, 9999999)
+    user_balance = float(args.balance)
+    pin = random.randint(1000, 9999)
+    with open(args.cardfile, 'w') as f:
+        f.write(json.dumps({'account': args.account, 'card_number': card_num, 'balance': args.balance, 'pin': pin}))
+    print("Cartão criado com sucesso.")
+
+def ler_cartao(args):
+    try:
+        with open(args.cardfile, 'rb') as f_card:
+            card_data = json.load(f_card)
+            card_num = int(card_data.get('card_number', 0))
+            user_balance = float(card_data.get('balance', 0))
+            pin = int(card_data.get('pin', 0))
+            print("Cartão encontrado. Número do cartão:", card_num)
+            # Faça o que precisa com as informações do cartão aqui
+    except IOError as e:
+        print("O arquivo do cartão não existe.")
+
+def main():
+    if verificar_existencia_arquivo(args.cardfile):
+        print("O arquivo do cartão já existe.")
+        ler_cartao(args)
+    else:
+        print("O arquivo do cartão não existe. Criando...")
+        criar_cartao(args)
+
+if __name__ == "__main__":
+    main()
 
 
-send("createAcc","bob", 1010)
+###send("createAcc","bob", 1010)

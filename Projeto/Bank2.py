@@ -26,7 +26,6 @@ def handler(signum, frame):
 
     
 def handler_int(signum, frame):
-    break
     raise KeyboardInterrupt()
     print("Desligando")
     sys.exit(0)
