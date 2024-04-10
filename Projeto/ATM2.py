@@ -247,7 +247,9 @@ def deposit_to_card(args):
             #     print("Nenhuma quantia especificada para depósito.")
 
 
-                    #SEND( OPERATION, NOME_PESSOA, VALUE, CONTEUDO_CARTÃO_PESSOA )
+                    
+        valor = 0 ## DEFINIR
+        #SEND( OPERATION, NOME_PESSOA, VALUE, CONTEUDO_CARTÃO_PESSOA )
         resposta = send("deposit", args.account ,valor, card_data)
 
         print(resposta['param1'])
@@ -271,6 +273,7 @@ def get_account_info(args):
             respsta = send("getinfo", args.nome , 1, card_data)
 
 
+            valor = 0 ## DEFINIR
             #SEND( OPERATION, NOME_PESSOA, VALUE, CONTEUDO_CARTÃO_PESSOA )
             resposta = send("deposit", args.account ,valor, card_data)
 
