@@ -9,9 +9,18 @@ import json
 import hmac
 import hashlib
 import os
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Signature import pkcs1_15
+from Crypto.Hash import SHA256
+import base64
 
-BUFFER_SIZE = 1024
+
+BUFFER_SIZE = 2048
 chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn" ## validar HMAC Challange
+
+chave_aes = None
+chave_publica = None
 
 
 parser = argparse.ArgumentParser()
@@ -19,7 +28,7 @@ group = parser.add_mutually_exclusive_group()
 parser.add_argument("-s", help="authentication file", action="store", dest='authfile', default="bank.auth")
 parser.add_argument("-i", help="bank's ip address", action="store", dest='ip', default="127.0.0.1")
 parser.add_argument("-p", help="bank's port number", action="store", dest='port', type=int, default=4001)
-parser.add_argument("-c", help="card-file", action="store", dest='cardfile')
+parser.add_argument("-c", help="card-file", action="store", dest='cardfile', default=None)
 parser.add_argument("-a", help="account", action="store", required=True, dest='account')
 group.add_argument("-n", help="balance when create an account", action="store", dest='balance')
 group.add_argument("-d", help="amount when deposit", action="store", dest='deposit')
@@ -27,6 +36,33 @@ group.add_argument("-w", help="amount when withdraw", action="store", dest='with
 group.add_argument("-g", help="get the information about account", action="store_true", dest='getinfo')
 
 args = parser.parse_args()
+
+
+
+## BEGIN RSA
+
+def cifrar_com_publica( mensagem):
+    global chave_publica
+    chave = RSA.import_key(chave_publica)
+    cifrador = PKCS1_OAEP.new(chave)
+    mensagem_cifrada = cifrador.encrypt(mensagem)
+    return mensagem_cifrada
+
+
+def verificar_assinatura(mensagem, assinatura_base64):
+    global chave_publica
+    chave = RSA.import_key(chave_publica)
+    h = SHA256.new(mensagem.encode())
+    assinatura = base64.b64decode(assinatura_base64)
+    try:
+        pkcs1_15.new(chave).verify(h, assinatura)
+        return True  
+    except (ValueError, TypeError):
+        return False 
+
+
+## END RSA
+
 
 
 # Check if the amount is valid
@@ -43,26 +79,34 @@ def is_valid_amount(amount):
 
 
         ## função responsavel por ler a chave no ATM
-def lerChave():
+
+
+def lerChave(auth_file_name):
+    global chave_aes
+    global chave_publica
     try:
-        with open(args.authfile, 'rb') as f_auth:
-            return f_auth.read().strip()
+        with open(auth_file_name, 'r') as file:
+            linhas = [linha.strip() for linha in file.readlines()]
+            chave_aes = linhas[0]  # A chave AES é a primeira linha
+            chave_publica = "\n".join(linhas[1:])
     except IOError as e:
-        print("Error reading authentication file:", e)  # Add debug print
+        print(f"Erro ao ler o arquivo de autenticação: {e}")
         sys.exit(255)
 
-def leCartao():
-    pass
-##### coisas aqui
+
+
+
 
 
 def tirarDaCripta(ciphertext):
-    fernet_obj = Fernet(lerChave())
+    global chave_aes
+    fernet_obj = Fernet(chave_aes)
     return fernet_obj.decrypt(ciphertext)
 
 
 def colocarNaCripta(plainText):
-    fernet_obj = Fernet(lerChave())
+    global chave_aes
+    fernet_obj = Fernet(chave_aes)
     return fernet_obj.encrypt(plainText)
 
 def gerar_hmac(mensagem):
@@ -110,13 +154,24 @@ def send(type, nomePessoa, valor = None, cartao = None ):
         s.connect((args.ip, args.port))
         # ENVIAR solicitação de desafio
         json_string1 = json.dumps(getChallange)
-        print("Sending authentication request:", json_string1)
         msg = colocarNaCripta(json_string1.encode())
-        s.send(msg)
-        json_string2 = s.recv(1024)  # RECEBER o desafio
+        msg_cifrada_RSA_public = cifrar_com_publica(msg)
+        s.send(msg_cifrada_RSA_public)
+
+        json_string2 = s.recv(1024)  # RECEBER o desafio + Assinatura
         data = tirarDaCripta(json_string2)
         request = json.loads(data)
+        assinatura = request['MaChSigned']
+        
         MatrixChallange = request['MatrixChallange']
+        if not(verificar_assinatura(str(MatrixChallange), assinatura)):
+            print("Assinatura invalida")
+            print("255")
+            sys.exit(255)
+        
+
+
+        ## até aqui tá bom
         MatrixChallangeSolved = solveChallange(MatrixChallange)
 
         # Gerar um novo desafio para a resposta
@@ -127,24 +182,44 @@ def send(type, nomePessoa, valor = None, cartao = None ):
             'type': type,
             'nome': nomePessoa,
             'valor': valor,
+            'cartao': cartao,
             'nounce': MatrixChallangeSolved,
             'novoNounce': desafinovo
         }
         pedido['resumo'] = gerar_hmac("nadaFoiAlterado" + json.dumps(pedido, sort_keys=True) + "nadaFoiAlterado")
-        R = json.dumps(pedido)
+
+        pedido_json = json.dumps(pedido)
+        pedido_bytes = pedido_json.encode('utf-8')
+
+
+        ##GERAR a chave AES que o MiM nunca lhe Bai por a Bista Em Cima
+        key_AntiMiM = Fernet.generate_key()
+        ferAnti_MiM = Fernet(key_AntiMiM)
+        pedidoEncapsulado = ferAnti_MiM.encrypt(pedido_bytes)
+
+        chaveCifradaAntiMiM = cifrar_com_publica(key_AntiMiM)
+
+        capsula = {
+            'pedidoEncapsulado': base64.b64encode(pedidoEncapsulado).decode('utf-8'),
+            'chaveCifradaAntiMiM': base64.b64encode(chaveCifradaAntiMiM).decode('utf-8'),
+        }
+
+        R = json.dumps(capsula)
         msg = colocarNaCripta(R.encode())
-        s.send(msg)  # envio do pedido
+        s.send(msg)
+
+
 
         # RECEBER A RESPOSTA DO BANCO
         json_string2 = s.recv(1024)
-        data = tirarDaCripta(json_string2)
+        data = ferAnti_MiM.decrypt(json_string2)
         if (not validadeResumeRequest(data)):
             print("RESUMO INVALIDO")
-        print ("Resumo Operação Valido")    
+
         dicionario  = json.loads(data)
         if not(validateMatrixChallange(dicionario['nounce'], hmac_ATM)):
             print("NOUNCE INVALIDO")
-        print ("Nounce Valido")
+
 
         return dicionario  # retorna a resposta do banco
 
@@ -154,8 +229,11 @@ def send(type, nomePessoa, valor = None, cartao = None ):
 
 
 ###CRIAÇÂO DO CARTÃO
-def verificar_existencia_arquivo(caminho_arquivo):
+def verificar_existencia_arquivo(nomePessoa, caminho_arquivo=None, temDeExistirMesmoOCartao = False):
+    if ((caminho_arquivo) == None and (not (temDeExistirMesmoOCartao))): ## só no caso de criar, é que não existe e vem  a False
+        caminho_arquivo = nomePessoa+".card" ## logo entraria AQUI
     return os.path.exists(caminho_arquivo)
+
 
 def criar_cartao(args):
 
@@ -173,42 +251,14 @@ def criar_cartao(args):
     print(resposta['param2']) ## vem o segundo parametro, neste caso o sumario 
     
 
-def ler_cartao(args):
+def ler_cartao(nome):
+    
     try:
-        with open(args.cardfile, 'rb') as f_card:
-            card_data = json.load(f_card)
-            card_num = int(card_data.get('card_number', 0))
-            user_balance = float(card_data.get('balance', 0))
-            pin = int(card_data.get('pin', 0))
-            print("Cartão encontrado. Número do cartão:", card_num)
-            # Faça o que precisa com as informações do cartão aqui
+        with open(nome, 'r') as f_card:
+            return f_card.readline()
     except IOError as e:
         print("O arquivo do cartão não existe.")
 
-#def withdraw_from_card(args):
-#    try:
-#        with open(args.cardfile, 'r+') as f_card:
-#            card_data = json.load(f_card)
-#            card_num = int(card_data.get('card_number', 0))
-#            user_balance = float(card_data.get('balance', 0))
-#            pin = int(card_data.get('pin', 0))
-#            print("Cartão encontrado. Número do cartão:", card_num)
-#            # Verificar se há saldo suficiente para a retirada
-#            if args.withdraw is not None:
-#                withdraw_amount = float(args.withdraw)
-#                if withdraw_amount <= user_balance:
-#                    user_balance -= withdraw_amount
-#                    card_data['balance'] = user_balance  # Atualizar o saldo no dicionário
-#                    f_card.seek(0)  # Voltar ao início do arquivo
-#                    f_card.truncate()  # Limpar o conteúdo existente
-#                    json.dump(card_data, f_card)  # Escrever o novo conteúdo
-#                    print("Retirada de", args.withdraw, "realizada com sucesso.")
-#                else:
-#                    print("Saldo insuficiente para a retirada.")
-#            else:
-#                print("Nenhuma quantia especificada para retirada.")
-#    except IOError as e:
-#        print("O arquivo do cartão não existe.")
 
 
 def withdraw_from_card(args):
@@ -232,28 +282,34 @@ def deposit_to_card(args):
         print("Erro ao processar resposta do banco: 'message' não encontrado na resposta")
 
 def get_account_info(args):
+    resumoCartao = ler_cartao(args.cardfile)
     try:
-        data = send("consultar", args.account)
-        if 'message' in data:
-            print(data['message'])
-        else:
-            print("Saldo atual:", data['param1'])
+        data = send("consultar", args.account, 0, resumoCartao)
+        print(data['param1'])
+
     except KeyError:
         print("Erro ao processar resposta do banco: 'message' não encontrado na resposta")
 
 def main():
-    if args.getinfo:
-        get_account_info(args)
+    lerChave("bank.auth")
+    if args.balance: ## QUERO criar conta
+        ## ver se cartão com o nome já existe
+        if not(verificar_existencia_arquivo(args.account, args.cardfile)) and (float(args.balance)>=0.0): ## se cartão não existe
+            criar_cartao(args)
+
+    elif args.getinfo:
+        
+        
+        if (verificar_existencia_arquivo(args.account, args.cardfile, True )): ## se cartão não existe
+            get_account_info(args)
+
+        
+
+
     elif args.deposit is not None:
         deposit_to_card(args)
     elif args.withdraw is not None:
         withdraw_from_card(args)
-    elif verificar_existencia_arquivo(args.cardfile):
-        print("O arquivo do cartão já existe.")
-        ler_cartao(args)
-    elif args.balance is not None:
-        print("O arquivo do cartão não existe. Criando...")
-        criar_cartao(args)
     else:
         print("Comando inválido. Use -h para ajuda.")
 

@@ -9,13 +9,38 @@ import signal
 from cryptography.fernet import Fernet
 import hmac
 import hashlib
+import base64
 
-BUFFER_SIZE = 1024
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Signature import pkcs1_15
+from Crypto.Hash import SHA256
+
+
+
+# nome_arquivo = "bank.auth"
+
+# try:
+#     # Remove o arquivo
+#     os.remove(nome_arquivo)
+#     print(f"O arquivo {nome_arquivo} foi removido com sucesso.")
+# except FileNotFoundError:
+#     print(f"O arquivo {nome_arquivo} não foi encontrado.")
+# except PermissionError:
+#     print(f"Permissão negada para remover o arquivo {nome_arquivo}.")
+# except Exception as e:
+#     print(f"Erro ao remover o arquivo {nome_arquivo}: {e}")
+
+
+
+
+BUFFER_SIZE = 2048
+
 accounts = {}
 auth_file_name = "bank.auth"
 hmac_challange_server = None
 travao = False
-
+chave_RSA_privada= None
 chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn"  ## validar HMAC Challange
 
 
@@ -30,6 +55,39 @@ def handler_int(signum, frame):
     sys.exit(0)
 
 
+
+## BEGIN RSA
+def gerar_chaves_rsa():
+    global chave_RSA_privada
+    chave = RSA.generate(2048)
+    chave_privada = chave.export_key()
+    chave_publica = chave.publickey().export_key()
+    chave_RSA_privada=chave_privada
+    return chave_publica
+
+def decifrar_com_privada(mensagem_cifrada):
+    global chave_RSA_privada
+    chave = RSA.import_key(chave_RSA_privada)
+    cifrador = PKCS1_OAEP.new(chave)
+    mensagem_decifrada = cifrador.decrypt(mensagem_cifrada)
+    return mensagem_decifrada
+
+
+def assinar_com_privada(mensagem):
+    global chave_RSA_privada
+    chave = RSA.import_key(chave_RSA_privada)
+    h = SHA256.new(mensagem.encode())
+    assinatura = pkcs1_15.new(chave).sign(h)
+    # Converte a assinatura para base64 para serialização JSON
+    assinatura_base64 = base64.b64encode(assinatura).decode('utf-8')
+    return assinatura_base64
+
+
+## END RSA
+
+
+
+
 def parse_money(money_string):
     money_string = money_string + 0.0
     parts = str(money_string).split('.')
@@ -42,8 +100,11 @@ def parse_money(money_string):
 def lerChave():
     global auth_file_name
     try:
-        with open(auth_file_name, 'rb') as f_auth:
-            return f_auth.read().strip()
+        with open(auth_file_name, 'r') as file:
+            linhas = [linha.strip() for linha in file.readlines()]
+            chave_aes = linhas[0]  # A chave AES é a primeira linha
+            chave_publica = "\n".join(linhas[1:])
+        return chave_aes, chave_publica
     except IOError as e:
         print("Error reading authentication file:", e)  # Add debug print
         sys.exit(255)
@@ -98,12 +159,14 @@ class Account:
 
 
 def tirarDaCripta(ciphertext):
-    fernet_obj = Fernet(lerChave())
+    chaveAES, chaveRSA_Pub = lerChave()
+    fernet_obj = Fernet(chaveAES)
     return fernet_obj.decrypt(ciphertext)
 
 
 def colocarNaCripta(plainText):
-    fernet_obj = Fernet(lerChave())
+    chaveAES, chaveRSA_Pub = lerChave()
+    fernet_obj = Fernet(chaveAES)
     return fernet_obj.encrypt(plainText)
 
 ## não mexer
@@ -120,7 +183,7 @@ def genNewChallange(conn):
     global chave_secreta
 
     desafio = random.randint(100000000, 999999999)
-    json_ = json.dumps({'MatrixChallange': desafio})
+    json_ = json.dumps({'MatrixChallange': desafio, 'MaChSigned': assinar_com_privada(str(desafio))})
     cypherText = colocarNaCripta(json_.encode("utf-8"))
     conn.send(cypherText)
 
@@ -168,36 +231,47 @@ def solveChallange(puzzle):
         print("Authentication failed:", e)
         return 0
     
-def deposit_to_card(conn, data):
+def deposit_to_card(data):
     try:
         print("Depositando na conta...")
         valor = float(data['valor'])
-        respostaParaATM(conn, data['novoNounce'], "Depósito de {:.2f} realizado com sucesso.".format(valor))
+        respostaParaATM(data['novoNounce'], "Depósito de {:.2f} realizado com sucesso.".format(valor))
     except KeyError:
         print("Erro ao depositar na conta: KeyError")
-        respostaParaATM(conn, data['novoNounce'], "Operação de depósito inválida. Certifique-se de fornecer um valor válido.")
+        respostaParaATM(data['novoNounce'], "Operação de depósito inválida. Certifique-se de fornecer um valor válido.")
 
-def withdraw_from_card(conn, data):
+def withdraw_from_card(data):
     try:
         print("Retirando da conta...")
         valor = float(data['valor'])
-        respostaParaATM(conn, data['novoNounce'], "Retirada de {:.2f} realizada com sucesso.".format(valor))
+        respostaParaATM(data['novoNounce'], "Retirada de {:.2f} realizada com sucesso.".format(valor))
     except KeyError:
         print("Erro ao retirar da conta: KeyError")
-        respostaParaATM(conn, data['novoNounce'], "Operação de retirada inválida. Certifique-se de fornecer um valor válido.")
+        respostaParaATM( data['novoNounce'], "Operação de retirada inválida. Certifique-se de fornecer um valor válido.")
 
-def get_account_balance(conn, data):
+def get_account_balance(nome, resumoCartao):
     try:
-        print("Consultando saldo da conta...")
-        respostaParaATM(conn, data['novoNounce'], "Saldo da conta é de {:.2f}.".format(0)) 
+        global accounts
+        response = {'success': True}
+        for a, conta in accounts.items():
+
+            if conta.name == nome:
+                conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
+                                                        ##então yá o nome da pessoa foi validado e o cartão tambem
+                balance = conta.get_balance()
+                response['summary'] = "{\"account\": \"", conta.name, "\", \"balance\": ", str(balance), "}"
+                break
+
+        return response
+
     except KeyError:
         print("Erro ao consultar saldo da conta: KeyError")
-        respostaParaATM(conn, data['novoNounce'], "Erro ao consultar saldo.")
+        respostaParaATM( data['novoNounce'], "Erro ao consultar saldo.")
 
 ###################################################################################################################################################################
 
 ## não precisa mudar
-def respostaParaATM(nouncePorResolver, param1 = None, param2 = None, param3= None):
+def respostaParaATM(f , nouncePorResolver, param1 = None, param2 = None, param3= None):
     nounceResolvido =  solveChallange(nouncePorResolver)
 
     resposta = {
@@ -209,7 +283,7 @@ def respostaParaATM(nouncePorResolver, param1 = None, param2 = None, param3= Non
 
     resposta['resumo'] = gerar_hmac("nadaFoiAlterado" + json.dumps(resposta, sort_keys=True) + "nadaFoiAlterado")
     R = json.dumps(resposta)
-    msg = colocarNaCripta(R.encode())
+    msg = f.encrypt(R.encode()) ## fernet encript já com a chave ANTI MIM
     conn.send(msg) ## envio da Resposta
     return 0
 
@@ -245,8 +319,11 @@ if __name__ == '__main__':
         auth_file_name = args.auth_file
         print("created")
         key = Fernet.generate_key()
+        chave_RSA_publica = gerar_chaves_rsa()
         auth_file = open(auth_file_name, 'wb')
         auth_file.write(key)
+        auth_file.write(b'\n')
+        auth_file.write(chave_RSA_publica)
         auth_file.close()
     ## FIM LOADUP
 
@@ -263,63 +340,76 @@ if __name__ == '__main__':
         print("Connection established with:", addr)
 
         ciphertext = conn.recv(BUFFER_SIZE)
+        ciphertext = decifrar_com_privada(ciphertext)
         #print("Received ciphertext:", ciphertext)
         if not ciphertext:
             print("Received empty ciphertext") ############### VER O QUE FAZER AQUI
         
         data = tirarDaCripta(ciphertext)
-        print("Decrypted data:", data)
+        
 
         request = json.loads(data)
         type = request['type']
         if type == "genChallange":
             hmac_challange_server = genNewChallange(conn) ## gera e Envia
 
-        ciphertext = conn.recv(BUFFER_SIZE)
-        ##print("Received ciphertext:", ciphertext)
+        ciphertext = conn.recv(BUFFER_SIZE) ## aqui recebemos a capsula / envelope seguro,
         if not ciphertext:
             print("Received empty ciphertext") ############### VER O QUE FAZER AQUI
 
-        data = tirarDaCripta(ciphertext)
-        print("Decrypted data:", data, end="\n\n")
-        request_str = data.decode('utf-8')
-        
+        ## ABrir a ENVELOPE SEGURO que veio do ATM
+        data = tirarDaCripta(ciphertext)  
+        capsula = json.loads(data)
+        pedido_encapsulado_base64 = capsula['pedidoEncapsulado']
+        chave_cifrada_anti_mim_base64 = capsula['chaveCifradaAntiMiM']
+        key_AntiMiM = decifrar_com_privada(base64.b64decode(chave_cifrada_anti_mim_base64))
+        ferAnti_MiM = Fernet(key_AntiMiM)
+        request_str = ferAnti_MiM.decrypt(base64.b64decode(pedido_encapsulado_base64))
+        ## ENVELOPE SEGURO ABERTO
+
         if (not validadeResumeRequest(request_str)):
             print("RESUMO INVALIDO")                ########### VER O QUE FAZER AQUI
 
-        print ("Resumo Operação Valido")    
+        
 
         dicionario  = json.loads(request_str)
         if not(validateMatrixChallange(dicionario['nounce'], hmac_challange_server)):
             print("NOUNCE INVALIDO")                 ########### VER O QUE FAZER AQUI
-        print ("Nounce Valido")
-
-
+       
 
         type = dicionario['type']
 
         if type == "createAcc":
             response = create(dicionario['nome'], dicionario['valor'])
-            print(response)  # Temporário: imprime a resposta do banco para depuração
             if response['success']:
                 sumario = response['summary']
                 resumoCartAo = response['cardResume']
-                respostaParaATM(dicionario['novoNounce'], resumoCartAo, sumario, "A vizinha")
+                respostaParaATM(ferAnti_MiM ,dicionario['novoNounce'], resumoCartAo, sumario)
                 print(sumario)
             else:
                 print("Erro ao criar cartão")
 
         elif type == "deposit":
-            respostaParaATM(dicionario['novoNounce'], "Depositou o que lhe apeteceu", "outra coisa que quero enviar", "outra coisa que me apeteça também")
+           
+            respostaParaATM(ferAnti_MiM,dicionario['novoNounce'], "Depositou o que lhe apeteceu", "outra coisa que quero enviar", "outra coisa que me apeteça também")
 
         elif type == "levantar":
-            respostaParaATM(dicionario['novoNounce'], "Levantou o que quis")
+            respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "Levantou o que quis")
 
         elif type == "consultar":
-            respostaParaATM(dicionario['novoNounce'], "Tá falido")
+
+            response = get_account_balance(dicionario['nome'], dicionario['cartao'])
+            if response['success']:
+                sumario = response['summary']
+                respostaParaATM(ferAnti_MiM ,dicionario['novoNounce'], sumario,)
+                print(sumario)
+            else:
+                print("255")
+                respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
         else:
             print("Tipo de operação não reconhecido:", type)  
             print("Request:", request)  
             print("Nounce:", dicionario['novoNounce'])  
             print("Esta é a opção padrão, caso nenhuma das anteriores se aplique.")  
+        
 
