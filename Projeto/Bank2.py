@@ -10,7 +10,6 @@ from cryptography.fernet import Fernet
 import hmac
 import hashlib
 
-
 BUFFER_SIZE = 1024
 accounts = {}
 auth_file_name = "bank.auth"
@@ -62,7 +61,7 @@ class Account:
         self.cents = amount[1]
         self.salt = random.randint(1000000, 9999999)
 
-    ####################### MEXER BEGIN
+    ######################################################################################################## MEXER BEGIN
 
     def withdraw(self, amount_string):
         amount = parse_money(amount_string)
@@ -88,7 +87,7 @@ class Account:
         balance_string = str(self.dollars) + '.' + str(self.cents)
         return balance_string
 
-    ####################### MEXER END
+    ######################################################################################################## MEXER END
 
     def validadeCard(self, resume):
         resumo_gen = self.calculateResume()
@@ -169,6 +168,33 @@ def solveChallange(puzzle):
         print("Authentication failed:", e)
         return 0
     
+def deposit_to_card(conn, data):
+    try:
+        print("Depositando na conta...")
+        valor = float(data['valor'])
+        respostaParaATM(conn, data['novoNounce'], "Depósito de {:.2f} realizado com sucesso.".format(valor))
+    except KeyError:
+        print("Erro ao depositar na conta: KeyError")
+        respostaParaATM(conn, data['novoNounce'], "Operação de depósito inválida. Certifique-se de fornecer um valor válido.")
+
+def withdraw_from_card(conn, data):
+    try:
+        print("Retirando da conta...")
+        valor = float(data['valor'])
+        respostaParaATM(conn, data['novoNounce'], "Retirada de {:.2f} realizada com sucesso.".format(valor))
+    except KeyError:
+        print("Erro ao retirar da conta: KeyError")
+        respostaParaATM(conn, data['novoNounce'], "Operação de retirada inválida. Certifique-se de fornecer um valor válido.")
+
+def get_account_balance(conn, data):
+    try:
+        print("Consultando saldo da conta...")
+        respostaParaATM(conn, data['novoNounce'], "Saldo da conta é de {:.2f}.".format(0)) 
+    except KeyError:
+        print("Erro ao consultar saldo da conta: KeyError")
+        respostaParaATM(conn, data['novoNounce'], "Erro ao consultar saldo.")
+
+###################################################################################################################################################################
 
 ## não precisa mudar
 def respostaParaATM(nouncePorResolver, param1 = None, param2 = None, param3= None):
@@ -187,9 +213,7 @@ def respostaParaATM(nouncePorResolver, param1 = None, param2 = None, param3= Non
     conn.send(msg) ## envio da Resposta
     return 0
 
-
-
-
+###################################################################################################################################################################
 
 if __name__ == '__main__':
     ## LOADUP START BANK
@@ -276,29 +300,26 @@ if __name__ == '__main__':
 
         if type == "createAcc":
             response = create(dicionario['nome'], dicionario['valor'])
-            print(response) ## temporario
+            print(response)  # Temporário: imprime a resposta do banco para depuração
             if response['success']:
-
                 sumario = response['summary']
                 resumoCartAo = response['cardResume']
-                respostaParaATM (dicionario['novoNounce'], resumoCartAo, sumario, "A vizinha" )
-
+                respostaParaATM(dicionario['novoNounce'], resumoCartAo, sumario, "A vizinha")
                 print(sumario)
             else:
-                print("erro criar Cartão")
-            
-        elif type == "deposit":
-            ## Do some magic
-            respostaParaATM (dicionario['novoNounce'], "Depositou o que lhe apeteceu", "outra coisa que quero enviar", "outra coisa que me apeteça tambem")
+                print("Erro ao criar cartão")
 
+        elif type == "deposit":
+            respostaParaATM(dicionario['novoNounce'], "Depositou o que lhe apeteceu", "outra coisa que quero enviar", "outra coisa que me apeteça também")
 
         elif type == "levantar":
-            ## Do some magic
-            respostaParaATM (dicionario['novoNounce'], "LEvantou o que quis")
-
+            respostaParaATM(dicionario['novoNounce'], "Levantou o que quis")
 
         elif type == "consultar":
-            ## Do some magic
-            respostaParaATM (dicionario['novoNounce'], "Tá falido" )
+            respostaParaATM(dicionario['novoNounce'], "Tá falido")
         else:
-            print("Esta é a opção padrão, caso nenhuma das anteriores se aplique.")
+            print("Tipo de operação não reconhecido:", type)  
+            print("Request:", request)  
+            print("Nounce:", dicionario['novoNounce'])  
+            print("Esta é a opção padrão, caso nenhuma das anteriores se aplique.")  
+

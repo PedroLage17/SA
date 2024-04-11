@@ -108,25 +108,24 @@ def send(type, nomePessoa, valor = None, cartao = None ):
     s.settimeout(10)
     try:
         s.connect((args.ip, args.port))
-        ## ENVIAR RequestChallange
+        # ENVIAR solicitação de desafio
         json_string1 = json.dumps(getChallange)
-        print("Sending authentication request:", json_string1)  # Add this line for debugging
+        print("Sending authentication request:", json_string1)
         msg = colocarNaCripta(json_string1.encode())
         s.send(msg)
-        json_string2 = s.recv(1024)##RECEBER o challange
-        print("Received ciphertext:", json_string2)
-        ##decifrar
+        json_string2 = s.recv(1024)  # RECEBER o desafio
         data = tirarDaCripta(json_string2)
         request = json.loads(data)
         MatrixChallange = request['MatrixChallange']
-        print(MatrixChallange)
         MatrixChallangeSolved = solveChallange(MatrixChallange)
-        # createAcc deposit levantar consultar # types possiveis
+
+        # Gerar um novo desafio para a resposta
         hmac_ATM, desafinovo = genNewChallange()
+        
+        # Construir o pedido para o banco
         pedido = {
             'type': type,
             'nome': nomePessoa,
-            'cartao': cartao,
             'valor': valor,
             'nounce': MatrixChallangeSolved,
             'novoNounce': desafinovo
@@ -134,31 +133,20 @@ def send(type, nomePessoa, valor = None, cartao = None ):
         pedido['resumo'] = gerar_hmac("nadaFoiAlterado" + json.dumps(pedido, sort_keys=True) + "nadaFoiAlterado")
         R = json.dumps(pedido)
         msg = colocarNaCripta(R.encode())
-        s.send(msg) ## envio do pedido
-        print("Pedido SENT")
+        s.send(msg)  # envio do pedido
 
-
-
-        ## RECEBER A RESPOSTA
+        # RECEBER A RESPOSTA DO BANCO
         json_string2 = s.recv(1024)
-        ##decifrar
         data = tirarDaCripta(json_string2)
-   
-
-
         if (not validadeResumeRequest(data)):
-            print("RESUMO INVALIDO")                ########### VER O QUE FAZER AQUI
+            print("RESUMO INVALIDO")
         print ("Resumo Operação Valido")    
         dicionario  = json.loads(data)
         if not(validateMatrixChallange(dicionario['nounce'], hmac_ATM)):
-            print("NOUNCE INVALIDO")                 ########### VER O QUE FAZER AQUI
+            print("NOUNCE INVALIDO")
         print ("Nounce Valido")
 
-        return dicionario ## a função acaba aqui e retorna a resposta do banco
-
-
-
-
+        return dicionario  # retorna a resposta do banco
 
     except (socket.error, socket.timeout) as e:
         s.close()
@@ -197,97 +185,65 @@ def ler_cartao(args):
     except IOError as e:
         print("O arquivo do cartão não existe.")
 
+#def withdraw_from_card(args):
+#    try:
+#        with open(args.cardfile, 'r+') as f_card:
+#            card_data = json.load(f_card)
+#            card_num = int(card_data.get('card_number', 0))
+#            user_balance = float(card_data.get('balance', 0))
+#            pin = int(card_data.get('pin', 0))
+#            print("Cartão encontrado. Número do cartão:", card_num)
+#            # Verificar se há saldo suficiente para a retirada
+#            if args.withdraw is not None:
+#                withdraw_amount = float(args.withdraw)
+#                if withdraw_amount <= user_balance:
+#                    user_balance -= withdraw_amount
+#                    card_data['balance'] = user_balance  # Atualizar o saldo no dicionário
+#                    f_card.seek(0)  # Voltar ao início do arquivo
+#                    f_card.truncate()  # Limpar o conteúdo existente
+#                    json.dump(card_data, f_card)  # Escrever o novo conteúdo
+#                    print("Retirada de", args.withdraw, "realizada com sucesso.")
+#                else:
+#                    print("Saldo insuficiente para a retirada.")
+#            else:
+#                print("Nenhuma quantia especificada para retirada.")
+#    except IOError as e:
+#        print("O arquivo do cartão não existe.")
+
+
 def withdraw_from_card(args):
     try:
-        with open(args.cardfile, 'r+') as f_card:
-            card_data = json.load(f_card)
-            card_num = int(card_data.get('card_number', 0))
-            user_balance = float(card_data.get('balance', 0))
-            pin = int(card_data.get('pin', 0))
-            print("Cartão encontrado. Número do cartão:", card_num)
-            # Verificar se há saldo suficiente para a retirada
-            if args.withdraw is not None:
-                withdraw_amount = float(args.withdraw)
-                if withdraw_amount <= user_balance:
-                    user_balance -= withdraw_amount
-                    card_data['balance'] = user_balance  # Atualizar o saldo no dicionário
-                    f_card.seek(0)  # Voltar ao início do arquivo
-                    f_card.truncate()  # Limpar o conteúdo existente
-                    json.dump(card_data, f_card)  # Escrever o novo conteúdo
-                    print("Retirada de", args.withdraw, "realizada com sucesso.")
-                else:
-                    print("Saldo insuficiente para a retirada.")
-            else:
-                print("Nenhuma quantia especificada para retirada.")
-    except IOError as e:
-        print("O arquivo do cartão não existe.")
-
+        data = send("levantar", args.account, args.withdraw)
+        if 'message' in data:
+            print(data['message'])
+        else:
+            print("Operação de retirada realizada com sucesso.")
+    except KeyError:
+        print("Erro ao processar resposta do banco: 'message' não encontrado na resposta")
 
 def deposit_to_card(args):
     try:
-        with open(args.cardfile, 'r') as f_card:
-            card_data = f_card.read()
-            # card_num = int(card_data.get('card_number', 0))
-            # user_balance = float(card_data.get('balance', 0))
-            # pin = int(card_data.get('pin', 0))
-            # print("Cartão encontrado. Número do cartão:", card_num)
-            # # Verificar se há uma quantidade válida de depósito
-            # if args.deposit is not None:
-            #     deposit_amount = float(args.deposit)
-            #     if deposit_amount > 0:
-            #         user_balance += deposit_amount
-            #         card_data['balance'] = user_balance  # Atualizar o saldo no dicionário
-            #         f_card.seek(0)  # Voltar ao início do arquivo
-            #         f_card.truncate()  # Limpar o conteúdo existente
-            #         json.dump(card_data, f_card)  # Escrever o novo conteúdo
-            #         print("Depósito de", args.deposit, "realizado com sucesso.")
-            #     else:
-            #         print("O valor do depósito deve ser maior que zero.")
-            # else:
-            #     print("Nenhuma quantia especificada para depósito.")
-
-
-                    
-        valor = 0 ## DEFINIR
-        #SEND( OPERATION, NOME_PESSOA, VALUE, CONTEUDO_CARTÃO_PESSOA )
-        resposta = send("deposit", args.account ,valor, card_data)
-
-        print(resposta['param1'])
-        print(resposta['param2'])
-        print(resposta['param3'])
-
-
-    except IOError as e:
-        print("O arquivo do cartão não existe.")
-
+        data = send("deposit", args.account, args.deposit)
+        if 'message' in data:
+            print(data['message'])
+        else:
+            print("Operação de depósito realizada com sucesso.")
+    except KeyError:
+        print("Erro ao processar resposta do banco: 'message' não encontrado na resposta")
 
 def get_account_info(args):
     try:
-        with open(args.cardfile, 'r') as f_card:
-            card_data = json.load(f_card)
-            print("Informações da Conta:")
-            print("Nome do Cliente:", card_data.get('account'))
-            print("Número do Cartão:", card_data.get('card_number'))
-            print("Saldo:", card_data.get('balance'))
-            print("PIN:", card_data.get('pin'))
-            respsta = send("getinfo", args.nome , 1, card_data)
-
-
-            valor = 0 ## DEFINIR
-            #SEND( OPERATION, NOME_PESSOA, VALUE, CONTEUDO_CARTÃO_PESSOA )
-            resposta = send("deposit", args.account ,valor, card_data)
-
-            print(resposta['param1'])
-            print(resposta['param2'])
-            print(resposta['param3'])
-    except FileNotFoundError:
-        print("O arquivo do cartão não existe.")
-
-
+        data = send("consultar", args.account)
+        if 'message' in data:
+            print(data['message'])
+        else:
+            print("Saldo atual:", data['param1'])
+    except KeyError:
+        print("Erro ao processar resposta do banco: 'message' não encontrado na resposta")
 
 def main():
     if args.getinfo:
-        get_account_info( args)
+        get_account_info(args)
     elif args.deposit is not None:
         deposit_to_card(args)
     elif args.withdraw is not None:
@@ -299,7 +255,8 @@ def main():
         print("O arquivo do cartão não existe. Criando...")
         criar_cartao(args)
     else:
-        print("O arquivo do cartão não existe.")
+        print("Comando inválido. Use -h para ajuda.")
+
 
 if __name__ == "__main__":
     main()
