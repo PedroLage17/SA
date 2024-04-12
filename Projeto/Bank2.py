@@ -35,7 +35,7 @@ except Exception as e:
 
 
 
-BUFFER_SIZE = 2048
+BUFFER_SIZE = 8192
 
 accounts = {}
 auth_file_name = "bank.auth"
@@ -86,13 +86,18 @@ def assinar_com_privada(mensagem):
 
 
 def parse_money(money_string):
-    parts = str(money_string).split('.')
-    amount = [0, 0]  
-    amount[0] = int(parts[0])
-    if len(parts) == 2 and parts[1]:  # Verifica se há parte decimal e se não está vazia
+    parts = str(money_string).strip().split('.')
+    print(parts)
+    amount = [0, 0]  # Inicializa a parte inteira e decimal como zero
+
+    # Verifica e trata a parte inteira
+    if len(parts) > 0 and parts[0]:
+        amount[0] = int(parts[0])
+    
+    # Verifica e trata a parte decimal
+    if len(parts) == 2 and parts[1]:
         amount[1] = int(parts[1])
-    else:
-        amount[1] = 0  # Configura a parte decimal como "00" se estiver ausente ou vazia
+    print(amount)
     return amount
 
 
@@ -105,7 +110,7 @@ def lerChave():
             chave_publica = "\n".join(linhas[1:])
         return chave_aes, chave_publica
     except IOError as e:
-        print("Error reading authentication file:", e)  # Add debug print
+
         sys.exit(255)
 
 
@@ -125,13 +130,15 @@ class Account:
 
     def withdraw(self, amount_string):
         amount = parse_money(amount_string)
+        
         if amount[0] < self.dollars or (amount[0] == self.dollars and amount[1] <= self.cents):
+            
             self.dollars -= amount[0]
             self.cents -= amount[1]
             if self.cents < 0:
                 self.dollars -= 1
                 self.cents += 100
-            return amount
+            return True
         else:
             return False
 
@@ -257,19 +264,21 @@ def deposit_to_card(nome, resumoCartao, valor):
 def withdraw_from_card(nome, resumoCartao, valor):
     global accounts; 
     response = {'success': False}
+    print(valor)
     if float(valor)<=0.0:
         return response
 
     for a, conta in accounts.items():
 
         if conta.name == nome:
-            response = {'success': True}
             conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
                                                     ##então yá o nome da pessoa foi validado e o cartão tambem
-            conta.withdraw(str(valor))                                       
-            response['summary'] = "{\"account\": \""+ conta.name+ "\", \"withdraw\": "+ str(valor)+"}"
-            break
+            if conta.withdraw(str(valor)):
+                response = {'success': True}                                  
+                response['summary'] = "{\"account\": \""+ conta.name+ "\", \"withdraw\": "+ str(valor)+"}"
 
+            break
+    
     return response
 
 
@@ -329,14 +338,17 @@ if __name__ == '__main__':
     if args.port < 1024 or args.port > 65535:
         parser.print_help()
         print("port must be between 1024 and 65535")
+
         sys.exit(255)
 
     pattern = re.compile(r'[_\-\.0-9a-z]{1,255}')
 
     if args.auth_file:  ## REMOVER FALSE
         if os.path.isfile(args.auth_file):  ## se ficheiro existe
+
             sys.exit(255)
         if not pattern.match(args.auth_file):  ## se nome ficheiro for incorrecto
+            
             parser.print_help()
             print(r"file name must match [_\-\.0-9a-z]{1,255}")
             sys.exit(255)
@@ -433,7 +445,7 @@ if __name__ == '__main__':
                             respostaParaATM(ferAnti_MiM ,dicionario['novoNounce'], resumoCartAo, sumario)
                             print(sumario)
                         else:
-                            print("255")
+                     
                             respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
 
 
@@ -444,8 +456,9 @@ if __name__ == '__main__':
                         if response['success']:
                             sumario = response['summary']
                             respostaParaATM(ferAnti_MiM,dicionario['novoNounce'], sumario)
+                            print(sumario)
                         else:
-                            print("255")
+                           
                             respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
 
 
@@ -454,10 +467,11 @@ if __name__ == '__main__':
                     elif type == "levantar":
                         response = withdraw_from_card(dicionario['nome'], dicionario['cartao'],dicionario['valor'])
                         if response['success']:
+                            print(response['success'])
                             sumario = response['summary']
                             respostaParaATM(ferAnti_MiM,dicionario['novoNounce'], sumario)
+                            print(sumario)
                         else:
-                            print("255")
                             respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
 
                         respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "Levantou o que quis")
@@ -473,7 +487,7 @@ if __name__ == '__main__':
                             respostaParaATM(ferAnti_MiM ,dicionario['novoNounce'], sumario,)
                             print(sumario)
                         else:
-                            print("255")
+
                             respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
                     else:
 

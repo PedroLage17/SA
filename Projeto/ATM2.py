@@ -5,7 +5,8 @@ import argparse
 import sys
 import re
 import random
-import math
+
+import signal
 import json
 import hmac
 import hashlib
@@ -17,7 +18,7 @@ from Crypto.Hash import SHA256
 import base64
 
 
-BUFFER_SIZE = 2048
+BUFFER_SIZE = 8192
 chave_secreta = "abak123123sjdnf.kjasd123123nf.kja123123sdfn" ## validar HMAC Challange
 
 chave_aes = None
@@ -34,10 +35,18 @@ parser.add_argument("-a", help="account", action="store", required=True, dest='a
 group.add_argument("-n", help="balance when create an account", action="store", dest='balance')
 group.add_argument("-d", help="amount when deposit", action="store", dest='deposit')
 group.add_argument("-w", help="amount when withdraw", action="store", dest='withdraw')
-group.add_argument("-g", help="get the information about account", action="store_true", dest='getinfo')
+group.add_argument("-g", help="get the information about account", action="store", dest='getinfo')
 
 args = parser.parse_args()
 
+def handler(signum, frame):
+    print("Desligando")
+    raise KeyboardInterrupt()
+
+
+def handler_int(signum, frame):
+    print("Desligando")
+    sys.exit(0)
 
 
 ## BEGIN RSA
@@ -159,7 +168,7 @@ def send(type, nomePessoa, valor = None, cartao = None ):
         msg_cifrada_RSA_public = cifrar_com_publica(msg)
         s.send(msg_cifrada_RSA_public)
 
-        json_string2 = s.recv(1024)  # RECEBER o desafio + Assinatura
+        json_string2 = s.recv(BUFFER_SIZE)  # RECEBER o desafio + Assinatura
         data = tirarDaCripta(json_string2)
         request = json.loads(data)
         if "protocolError" in request and 'protocolErrorSigned' in request and verificar_assinatura(str(request['protocolError'])+"aaa", request['protocolErrorSigned']):
@@ -167,17 +176,14 @@ def send(type, nomePessoa, valor = None, cartao = None ):
             sys.exit(request['protocolError'])
 
         if not 'MaChSigned' in request:
-            print(63)
             sys.exit(63)
 
         if not 'MatrixChallange' in request:
-            print(63)
             sys.exit(63)
 
         assinatura = request['MaChSigned']
         MatrixChallange = request['MatrixChallange']
         if not(verificar_assinatura(str(MatrixChallange), assinatura)):
-            print(63)
             sys.exit(63)
         
         ## até aqui tá bom
@@ -221,18 +227,15 @@ def send(type, nomePessoa, valor = None, cartao = None ):
 
         # RECEBER A RESPOSTA DO BANCO
         try:
-            json_string2 = s.recv(1024)
+            json_string2 = s.recv(BUFFER_SIZE)
             data = ferAnti_MiM.decrypt(json_string2)
             if (not validadeResumeRequest(data)):
-                print(63)
                 sys.exit(63)
 
             dicionario  = json.loads(data)
             if not(validateMatrixChallange(dicionario['nounce'], hmac_ATM)):
-                print(63)
                 sys.exit(63)
         except(InvalidToken):
-            print(63)
             sys.exit(63)
 
 
@@ -245,6 +248,9 @@ def send(type, nomePessoa, valor = None, cartao = None ):
 
 ###CRIAÇÂO DO CARTÃO
 def verificar_existencia_arquivo(nomePessoa, caminho_arquivo=None, temDeExistirMesmoOCartao = False):
+    check_path_traversal(caminho_arquivo)
+    if temDeExistirMesmoOCartao and caminho_arquivo == None:
+        return False
     if ((caminho_arquivo) == None and (not (temDeExistirMesmoOCartao))): ## só no caso de criar, é que não existe e vem  a False
         caminho_arquivo = nomePessoa+".card" ## logo entraria AQUI
     return os.path.exists(caminho_arquivo)
@@ -281,6 +287,8 @@ def ler_cartao(nome):
 def withdraw_from_card(args):
     resumoCartao = ler_cartao(args.cardfile)
     data = send("levantar", args.account, args.withdraw, resumoCartao)
+    if data['param1'] == str(255) or data['param1'] == 255:
+        sys.exit(255)
     print(data['param1'])
 
 
@@ -288,6 +296,8 @@ def withdraw_from_card(args):
 def deposit_to_card(args):
     resumoCartao = ler_cartao(args.cardfile)
     data = send("deposit", args.account, args.deposit, resumoCartao)
+    if data['param1'] == str(255) or data['param1'] == 255:
+        sys.exit(255)
     print(data['param1'])
 
    
@@ -295,63 +305,90 @@ def deposit_to_card(args):
 def get_account_info(args):
     resumoCartao = ler_cartao(args.cardfile)
     data = send("consultar", args.account, 0, resumoCartao)
+    if data['param1'] == str(255) or data['param1'] == 255:
+        sys.exit(255)
     print(data['param1'])
 
 
 def is_money(value):
-    parts = str(value).split('.')
-    
-    if len(parts) == 2:
-        if parts[1].isdigit() and len(parts[1]) <= 2 and parts[0].isdigit():
+    # Regex ajustada para considerar a parte inteira opcional quando o ponto está presente
+    if re.match(r'^(\d{1,10})?(\.\d{2})?$', value):
+        parts = value.split('.')
+        # Verifica se a parte inteira está presente e não excede o limite
+        if len(parts) == 2 and parts[0] == '':  # Caso de ".99"
             return True
-        elif parts[1] == '' and parts[0].isdigit():  # Se a parte decimal está vazia mas o ponto existe
+        elif len(parts) == 2 and int(parts[0]) <= 4294967295:
             return True
-    elif len(parts) == 1 and parts[0].isdigit():
-        return True
+        elif len(parts) == 1 and int(parts[0]) <= 4294967295:  # Caso apenas inteiro
+            return True
     return False
 
 
+def check_path_traversal(user_input):
+    # Regex para detectar padrões comuns de path traversal
+    patterns = [
+        r'\.\./',  # Unix-like path traversal
+        r'\.\.\\',  # Windows path traversal
+        r'/\.\./',  # Encoded Unix-like path traversal
+        r'\\\.\.\\'  # Encoded Windows path traversal
+    ]
+    
+    # Verifica cada padrão usando expressões regulares
+    for pattern in patterns:
+        if re.search(pattern, user_input):
+            sys.exit(255)
+    
+    
+def validate_command_line_arguments(args):
+    # Serializa os argumentos para uma string como se fossem fornecidos na linha de comando
+    combined_args = ' '.join(f"{key} {value}" for key, value in vars(args).items() if value is not None)
+    # Checa se o comprimento total excede 4096 caracteres
+    print(len(combined_args))
+    if len(combined_args) > 4096:
+        sys.exit(255)  # Encerra o programa se exceder o comprimento máximo
+
+
+def validate_exclusive_arguments(args):
+    arguments = [args.balance, args.getinfo, args.deposit, args.withdraw]
+    provided_args = sum(arg is not None for arg in arguments)
+    if provided_args > 1:
+        sys.exit(255)
+
+
 def main():
-    lerChave("bank.auth")
+    signal.signal(signal.SIGINT, handler_int)
+    signal.signal(signal.SIGTERM, handler)
+    check_path_traversal(args.authfile)
+    validate_command_line_arguments(args)
+
+    validate_exclusive_arguments(args)
+    lerChave(args.authfile)
+
     if args.balance: ## QUERO criar conta
         ## ver se cartão com o nome já existe
         if not(verificar_existencia_arquivo(args.account, args.cardfile))  and (is_money(args.balance)): ## se cartão não existe
-            if (float(args.balance)>0.0):
+            if (float(args.balance)>=0.0):
                 criar_cartao(args)
         else:
-            print("255")
             sys.exit(255)
-
     elif args.getinfo:
-        
         if (verificar_existencia_arquivo(args.account, args.cardfile, True )): ## se cartão não existe
             get_account_info(args)
         else:
-            print("255")
             sys.exit(255)
-
-
     elif args.deposit is not None:
-        
         if (verificar_existencia_arquivo(args.account, args.cardfile, True )) and (is_money(args.deposit)): ## se cartão não existe
             if (float(args.deposit)>0.0):
                 deposit_to_card(args)
         else:
-            print("255")
             sys.exit(255)
-
-
     elif args.withdraw is not None:
         if (verificar_existencia_arquivo(args.account, args.cardfile, True )) and (is_money(args.withdraw) ): ## se cartão não existe
             if (float(args.withdraw)>0.0):
                 withdraw_from_card(args)
         else:
-            print("255")
             sys.exit(255)
-
-
     else:
-        print("255")
         sys.exit(255)
 
 
