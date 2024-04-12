@@ -35,7 +35,7 @@ parser.add_argument("-a", help="account", action="store", required=True, dest='a
 group.add_argument("-n", help="balance when create an account", action="store", dest='balance')
 group.add_argument("-d", help="amount when deposit", action="store", dest='deposit')
 group.add_argument("-w", help="amount when withdraw", action="store", dest='withdraw')
-group.add_argument("-g", help="get the information about account", action="store", dest='getinfo')
+group.add_argument("-g", help="get the information about account", action="store_true", dest='getinfo')
 
 args = parser.parse_args()
 
@@ -266,7 +266,11 @@ def criar_cartao(args):
 
     resposta = send("createAcc", args.account ,user_balance)
     if not resposta['param1'] == str(255):
-        with open(args.cardfile, 'w') as f:
+        if args.cardfile == None:
+            nomeCard = args.account+".card"
+        else:
+            nomeCard = args.cardfile
+        with open(nomeCard, 'w') as f:
             f.write(resposta['param1']) ## vem o primeiro parametro, neste caso o resumo do cartão 
 
         print(resposta['param2']) ## vem o segundo parametro, neste caso o sumario 
@@ -334,9 +338,10 @@ def check_path_traversal(user_input):
     ]
     
     # Verifica cada padrão usando expressões regulares
-    for pattern in patterns:
-        if re.search(pattern, user_input):
-            sys.exit(255)
+    if user_input != None:
+        for pattern in patterns:
+            if re.search(pattern, user_input):
+                sys.exit(255)
     
     
 def validate_command_line_arguments(args):
@@ -349,7 +354,8 @@ def validate_command_line_arguments(args):
 
 def validate_exclusive_arguments(args):
     arguments = [args.balance, args.getinfo, args.deposit, args.withdraw]
-    provided_args = sum(arg is not None for arg in arguments)
+    # Conta apenas argumentos que são True ou não-None (para argumentos não-flag).
+    provided_args = sum(arg is not None and arg is not False for arg in arguments)
     if provided_args > 1:
         sys.exit(255)
 

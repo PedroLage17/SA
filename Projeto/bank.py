@@ -22,7 +22,7 @@ from Crypto.Hash import SHA256
 
 
 
-debug = True ## mudar para Falso
+debug = False
 
 BUFFER_SIZE = 8192
 
@@ -85,7 +85,7 @@ def parse_money(money_string):
     # Verifica e trata a parte decimal
     if len(parts) == 2 and parts[1]:
         amount[1] = int(parts[1])
-    print(amount)
+
     return amount
 
 
@@ -241,31 +241,30 @@ def deposit_to_card(nome, resumoCartao, valor):
     for a, conta in accounts.items():
 
         if conta.name == nome:
-            response = {'success': True}
-            conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
-                                                    ##então yá o nome da pessoa foi validado e o cartão tambem
-            conta.deposit(str(valor))                                       
-            response['summary'] = "{\"account\": \""+ conta.name+ "\", \"deposit\": "+ str(valor)+"}"
-            break
+            
+            if conta.calculateResume() == resumoCartao: ## epá se os 2 são iguais, 
+                response = {'success': True}                                      ##então yá o nome da pessoa foi validado e o cartão tambem
+                conta.deposit(str(valor))                                       
+                response['summary'] = "{\"account\": \""+ conta.name+ "\", \"deposit\": "+ str(valor)+"}"
+                break
 
     return response
 def withdraw_from_card(nome, resumoCartao, valor):
     global accounts; 
     response = {'success': False}
-    print(valor)
+    
     if float(valor)<=0.0:
         return response
 
     for a, conta in accounts.items():
 
         if conta.name == nome:
-            conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
-                                                    ##então yá o nome da pessoa foi validado e o cartão tambem
-            if conta.withdraw(str(valor)):
-                response = {'success': True}                                  
-                response['summary'] = "{\"account\": \""+ conta.name+ "\", \"withdraw\": "+ str(valor)+"}"
-
-            break
+            if conta.calculateResume() == resumoCartao: ## epá se os 2 são iguais, 
+                                                        ##então yá o nome da pessoa foi validado e o cartão tambem
+                if conta.withdraw(str(valor)):
+                    response = {'success': True}                                  
+                    response['summary'] = "{\"account\": \""+ conta.name+ "\", \"withdraw\": "+ str(valor)+"}"
+                    break
     
     return response
 
@@ -279,12 +278,12 @@ def get_account_balance(nome, resumoCartao):
     for a, conta in accounts.items():
 
         if conta.name == nome:
-            response = {'success': True}
-            conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
-                                                    ##então yá o nome da pessoa foi validado e o cartão tambem
-            balance = conta.get_balance()
-            response['summary'] = "{\"account\": \""+ conta.name+ "\", \"balance\": "+ str(balance)+"}"
-            break
+            
+            if conta.calculateResume() == resumoCartao: ## epá se os 2 são iguais, 
+                response = {'success': True} ##então yá o nome da pessoa foi validado e o cartão tambem
+                balance = conta.get_balance()
+                response['summary'] = "{\"account\": \""+ conta.name+ "\", \"balance\": "+ str(balance)+"}"
+                break
     return response
 
     
@@ -335,19 +334,19 @@ if __name__ == '__main__':
     ## LOADUP START BANK
 
 
-    if debug:
-        nome_arquivo = "bank.auth"
+    # if debug:
+    #     nome_arquivo = "bank.auth"
 
-        try:
-            # Remove o arquivo
-            os.remove(nome_arquivo)
-            print(f"O arquivo {nome_arquivo} foi removido com sucesso.")
-        except FileNotFoundError:
-            print(f"O arquivo {nome_arquivo} não foi encontrado.")
-        except PermissionError:
-            print(f"Permissão negada para remover o arquivo {nome_arquivo}.")
-        except Exception as e:
-            print(f"Erro ao remover o arquivo {nome_arquivo}: {e}")
+    #     try:
+    #         # Remove o arquivo
+    #         os.remove(nome_arquivo)
+    #         print(f"O arquivo {nome_arquivo} foi removido com sucesso.")
+    #     except FileNotFoundError:
+    #         print(f"O arquivo {nome_arquivo} não foi encontrado.")
+    #     except PermissionError:
+    #         print(f"Permissão negada para remover o arquivo {nome_arquivo}.")
+    #     except Exception as e:
+    #         print(f"Erro ao remover o arquivo {nome_arquivo}: {e}")
 
 
 
@@ -496,7 +495,6 @@ if __name__ == '__main__':
                     elif type == "levantar":
                         response = withdraw_from_card(dicionario['nome'], dicionario['cartao'],dicionario['valor'])
                         if response['success']:
-                            print(response['success'])
                             sumario = response['summary']
                             respostaParaATM(ferAnti_MiM,dicionario['novoNounce'], sumario)
                             print(sumario)
