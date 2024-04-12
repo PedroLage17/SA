@@ -7,6 +7,7 @@ import socket
 import os
 import signal
 from cryptography.fernet import Fernet
+from cryptography.fernet import InvalidToken
 import hmac
 import hashlib
 import base64
@@ -18,18 +19,18 @@ from Crypto.Hash import SHA256
 
 
 
-# nome_arquivo = "bank.auth"
+nome_arquivo = "bank.auth"
 
-# try:
-#     # Remove o arquivo
-#     os.remove(nome_arquivo)
-#     print(f"O arquivo {nome_arquivo} foi removido com sucesso.")
-# except FileNotFoundError:
-#     print(f"O arquivo {nome_arquivo} não foi encontrado.")
-# except PermissionError:
-#     print(f"Permissão negada para remover o arquivo {nome_arquivo}.")
-# except Exception as e:
-#     print(f"Erro ao remover o arquivo {nome_arquivo}: {e}")
+try:
+    # Remove o arquivo
+    os.remove(nome_arquivo)
+    print(f"O arquivo {nome_arquivo} foi removido com sucesso.")
+except FileNotFoundError:
+    print(f"O arquivo {nome_arquivo} não foi encontrado.")
+except PermissionError:
+    print(f"Permissão negada para remover o arquivo {nome_arquivo}.")
+except Exception as e:
+    print(f"Erro ao remover o arquivo {nome_arquivo}: {e}")
 
 
 
@@ -50,10 +51,8 @@ def handler(signum, frame):
 
 
 def handler_int(signum, frame):
-    raise KeyboardInterrupt()
     print("Desligando")
     sys.exit(0)
-
 
 
 ## BEGIN RSA
@@ -86,14 +85,14 @@ def assinar_com_privada(mensagem):
 ## END RSA
 
 
-
-
 def parse_money(money_string):
-    money_string = money_string + 0.0
     parts = str(money_string).split('.')
-    amount = [0, 0]
+    amount = [0, 0]  
     amount[0] = int(parts[0])
-    amount[1] = int(parts[1])
+    if len(parts) == 2 and parts[1]:  # Verifica se há parte decimal e se não está vazia
+        amount[1] = int(parts[1])
+    else:
+        amount[1] = 0  # Configura a parte decimal como "00" se estiver ausente ou vazia
     return amount
 
 
@@ -192,6 +191,13 @@ def genNewChallange(conn):
 
     return hmac_Server
 
+def sendProtocolError(conn):
+    global chave_secreta
+
+    json_ = json.dumps({'protocolError': 63, 'protocolErrorSigned': assinar_com_privada( str(63) +"aaa" )})
+    cypherText = colocarNaCripta(json_.encode("utf-8"))
+    conn.send(cypherText)
+
 
 def validateMatrixChallange(hmacClient, hmacServer):
     return hmac.compare_digest(hmacClient, hmacServer)
@@ -215,7 +221,7 @@ def create(name, amount):
     conta = Account(name, amount)
     accounts[conta.card_number] = conta
 
-    response['summary'] = "{\"account\": \"", conta.name, "\", \"initial_balance\": ", str(conta.get_balance()), "}"
+    response['summary'] = "{\"account\": \""+ conta.name+ "\", \"initial_balance\": "+ str(conta.get_balance())+ "}"
     response['cardResume'] = conta.calculateResume()
 
     return response
@@ -231,42 +237,61 @@ def solveChallange(puzzle):
         print("Authentication failed:", e)
         return 0
     
-def deposit_to_card(data):
-    try:
-        print("Depositando na conta...")
-        valor = float(data['valor'])
-        respostaParaATM(data['novoNounce'], "Depósito de {:.2f} realizado com sucesso.".format(valor))
-    except KeyError:
-        print("Erro ao depositar na conta: KeyError")
-        respostaParaATM(data['novoNounce'], "Operação de depósito inválida. Certifique-se de fornecer um valor válido.")
-
-def withdraw_from_card(data):
-    try:
-        print("Retirando da conta...")
-        valor = float(data['valor'])
-        respostaParaATM(data['novoNounce'], "Retirada de {:.2f} realizada com sucesso.".format(valor))
-    except KeyError:
-        print("Erro ao retirar da conta: KeyError")
-        respostaParaATM( data['novoNounce'], "Operação de retirada inválida. Certifique-se de fornecer um valor válido.")
-
-def get_account_balance(nome, resumoCartao):
-    try:
-        global accounts
-        response = {'success': True}
-        for a, conta in accounts.items():
-
-            if conta.name == nome:
-                conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
-                                                        ##então yá o nome da pessoa foi validado e o cartão tambem
-                balance = conta.get_balance()
-                response['summary'] = "{\"account\": \"", conta.name, "\", \"balance\": ", str(balance), "}"
-                break
-
+def deposit_to_card(nome, resumoCartao, valor):
+    global accounts; 
+    response = {'success': False}
+    if float(valor)<=0.0:
         return response
 
-    except KeyError:
-        print("Erro ao consultar saldo da conta: KeyError")
-        respostaParaATM( data['novoNounce'], "Erro ao consultar saldo.")
+    for a, conta in accounts.items():
+
+        if conta.name == nome:
+            response = {'success': True}
+            conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
+                                                    ##então yá o nome da pessoa foi validado e o cartão tambem
+            conta.deposit(str(valor))                                       
+            response['summary'] = "{\"account\": \""+ conta.name+ "\", \"deposit\": "+ str(valor)+"}"
+            break
+
+    return response
+def withdraw_from_card(nome, resumoCartao, valor):
+    global accounts; 
+    response = {'success': False}
+    if float(valor)<=0.0:
+        return response
+
+    for a, conta in accounts.items():
+
+        if conta.name == nome:
+            response = {'success': True}
+            conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
+                                                    ##então yá o nome da pessoa foi validado e o cartão tambem
+            conta.withdraw(str(valor))                                       
+            response['summary'] = "{\"account\": \""+ conta.name+ "\", \"withdraw\": "+ str(valor)+"}"
+            break
+
+    return response
+
+
+
+
+
+def get_account_balance(nome, resumoCartao):
+    global accounts
+    response = {'success': False}
+    for a, conta in accounts.items():
+
+        if conta.name == nome:
+            response = {'success': True}
+            conta.calculateResume() == resumoCartao ## epá se os 2 são iguais, 
+                                                    ##então yá o nome da pessoa foi validado e o cartão tambem
+            balance = conta.get_balance()
+            response['summary'] = "{\"account\": \""+ conta.name+ "\", \"balance\": "+ str(balance)+"}"
+            break
+    return response
+
+    
+       
 
 ###################################################################################################################################################################
 
@@ -331,85 +356,136 @@ if __name__ == '__main__':
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(('', args.port))
     s.listen(1)
+    s.settimeout(1)
+    print("Ready for connection")
+    try:
+        while True:
+            
+            do = False
+            try:
+                conn, addr = s.accept()
+                do = True
+            except socket.timeout:
+                do = False
+                continue
+
+            try:
+                if do:
+                    conn.settimeout(10)
+                    ##print("Connection established with:", addr)
+
+                    ciphertext = conn.recv(BUFFER_SIZE)
+                    ciphertext = decifrar_com_privada(ciphertext)
+                    
+                    if not ciphertext:
+                        print("protocol_error") 
+                        sendProtocolError(conn)
+                        continue
+                    
+                    
+
+                    data = tirarDaCripta(ciphertext)
+                    
+
+                    request = json.loads(data)
+                    type = request['type']
+                    if type == "genChallange":
+                        hmac_challange_server = genNewChallange(conn) ## gera e Envia
+
+                    ciphertext = conn.recv(BUFFER_SIZE) ## aqui recebemos a capsula / envelope seguro,
+                    if not ciphertext:
+                        print("protocol_error") 
+                        sendProtocolError(conn)
+                        continue
+
+                    ## ABrir a ENVELOPE SEGURO que veio do ATM
+                    data = tirarDaCripta(ciphertext)  
+                    capsula = json.loads(data)
+                    pedido_encapsulado_base64 = capsula['pedidoEncapsulado']
+                    chave_cifrada_anti_mim_base64 = capsula['chaveCifradaAntiMiM']
+                    key_AntiMiM = decifrar_com_privada(base64.b64decode(chave_cifrada_anti_mim_base64))
+                    ferAnti_MiM = Fernet(key_AntiMiM)
+                    request_str = ferAnti_MiM.decrypt(base64.b64decode(pedido_encapsulado_base64))
+                    ## ENVELOPE SEGURO ABERTO
+
+                    if (not validadeResumeRequest(request_str)):
+                        print("protocol_error") 
+                        sendProtocolError(conn)       
+                        
+                    
+
+                    dicionario  = json.loads(request_str)
+                    if not(validateMatrixChallange(dicionario['nounce'], hmac_challange_server)):
+                        print("protocol_error") 
+                        sendProtocolError(conn)               
+                
+
+                    type = dicionario['type']
+
+
+
+
+                    if type == "createAcc":
+                        response = create(dicionario['nome'], dicionario['valor'])
+                        if response['success']:
+                            sumario = response['summary']
+                            resumoCartAo = response['cardResume']
+                            respostaParaATM(ferAnti_MiM ,dicionario['novoNounce'], resumoCartAo, sumario)
+                            print(sumario)
+                        else:
+                            print("255")
+                            respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
+
+
+
+
+                    elif type == "deposit":
+                        response = deposit_to_card(dicionario['nome'], dicionario['cartao'],dicionario['valor'])
+                        if response['success']:
+                            sumario = response['summary']
+                            respostaParaATM(ferAnti_MiM,dicionario['novoNounce'], sumario)
+                        else:
+                            print("255")
+                            respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
+
+
+
+
+                    elif type == "levantar":
+                        response = withdraw_from_card(dicionario['nome'], dicionario['cartao'],dicionario['valor'])
+                        if response['success']:
+                            sumario = response['summary']
+                            respostaParaATM(ferAnti_MiM,dicionario['novoNounce'], sumario)
+                        else:
+                            print("255")
+                            respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
+
+                        respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "Levantou o que quis")
+
+
+
+
+                    elif type == "consultar":
+
+                        response = get_account_balance(dicionario['nome'], dicionario['cartao'])
+                        if response['success']:
+                            sumario = response['summary']
+                            respostaParaATM(ferAnti_MiM ,dicionario['novoNounce'], sumario,)
+                            print(sumario)
+                        else:
+                            print("255")
+                            respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
+                    else:
+
+                        print("protocol_error")  
+            except(InvalidToken):
+                print("protocol_error")  
     
-    while True:
-        print("Ready for connection")
-
-        conn, addr = s.accept()
-        conn.settimeout(10)
-        print("Connection established with:", addr)
-
-        ciphertext = conn.recv(BUFFER_SIZE)
-        ciphertext = decifrar_com_privada(ciphertext)
-        #print("Received ciphertext:", ciphertext)
-        if not ciphertext:
-            print("Received empty ciphertext") ############### VER O QUE FAZER AQUI
+    except KeyboardInterrupt:
         
-        data = tirarDaCripta(ciphertext)
-        
-
-        request = json.loads(data)
-        type = request['type']
-        if type == "genChallange":
-            hmac_challange_server = genNewChallange(conn) ## gera e Envia
-
-        ciphertext = conn.recv(BUFFER_SIZE) ## aqui recebemos a capsula / envelope seguro,
-        if not ciphertext:
-            print("Received empty ciphertext") ############### VER O QUE FAZER AQUI
-
-        ## ABrir a ENVELOPE SEGURO que veio do ATM
-        data = tirarDaCripta(ciphertext)  
-        capsula = json.loads(data)
-        pedido_encapsulado_base64 = capsula['pedidoEncapsulado']
-        chave_cifrada_anti_mim_base64 = capsula['chaveCifradaAntiMiM']
-        key_AntiMiM = decifrar_com_privada(base64.b64decode(chave_cifrada_anti_mim_base64))
-        ferAnti_MiM = Fernet(key_AntiMiM)
-        request_str = ferAnti_MiM.decrypt(base64.b64decode(pedido_encapsulado_base64))
-        ## ENVELOPE SEGURO ABERTO
-
-        if (not validadeResumeRequest(request_str)):
-            print("RESUMO INVALIDO")                ########### VER O QUE FAZER AQUI
-
-        
-
-        dicionario  = json.loads(request_str)
-        if not(validateMatrixChallange(dicionario['nounce'], hmac_challange_server)):
-            print("NOUNCE INVALIDO")                 ########### VER O QUE FAZER AQUI
-       
-
-        type = dicionario['type']
-
-        if type == "createAcc":
-            response = create(dicionario['nome'], dicionario['valor'])
-            if response['success']:
-                sumario = response['summary']
-                resumoCartAo = response['cardResume']
-                respostaParaATM(ferAnti_MiM ,dicionario['novoNounce'], resumoCartAo, sumario)
-                print(sumario)
-            else:
-                print("Erro ao criar cartão")
-
-        elif type == "deposit":
-           
-            respostaParaATM(ferAnti_MiM,dicionario['novoNounce'], "Depositou o que lhe apeteceu", "outra coisa que quero enviar", "outra coisa que me apeteça também")
-
-        elif type == "levantar":
-            respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "Levantou o que quis")
-
-        elif type == "consultar":
-
-            response = get_account_balance(dicionario['nome'], dicionario['cartao'])
-            if response['success']:
-                sumario = response['summary']
-                respostaParaATM(ferAnti_MiM ,dicionario['novoNounce'], sumario,)
-                print(sumario)
-            else:
-                print("255")
-                respostaParaATM(ferAnti_MiM, dicionario['novoNounce'], "255")
-        else:
-            print("Tipo de operação não reconhecido:", type)  
-            print("Request:", request)  
-            print("Nounce:", dicionario['novoNounce'])  
-            print("Esta é a opção padrão, caso nenhuma das anteriores se aplique.")  
-        
+        s.close()
+        sys.exit(0)  
+    
+            
+         
 

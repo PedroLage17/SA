@@ -1,5 +1,6 @@
 import socket
 from cryptography.fernet import Fernet
+from cryptography.fernet import InvalidToken
 import argparse
 import sys
 import re
@@ -161,16 +162,24 @@ def send(type, nomePessoa, valor = None, cartao = None ):
         json_string2 = s.recv(1024)  # RECEBER o desafio + Assinatura
         data = tirarDaCripta(json_string2)
         request = json.loads(data)
+        if "protocolError" in request and 'protocolErrorSigned' in request and verificar_assinatura(str(request['protocolError'])+"aaa", request['protocolErrorSigned']):
+            print(request['protocolError'])
+            sys.exit(request['protocolError'])
+
+        if not 'MaChSigned' in request:
+            print(63)
+            sys.exit(63)
+
+        if not 'MatrixChallange' in request:
+            print(63)
+            sys.exit(63)
+
         assinatura = request['MaChSigned']
-        
         MatrixChallange = request['MatrixChallange']
         if not(verificar_assinatura(str(MatrixChallange), assinatura)):
-            print("Assinatura invalida")
-            print("255")
-            sys.exit(255)
+            print(63)
+            sys.exit(63)
         
-
-
         ## até aqui tá bom
         MatrixChallangeSolved = solveChallange(MatrixChallange)
 
@@ -211,14 +220,20 @@ def send(type, nomePessoa, valor = None, cartao = None ):
 
 
         # RECEBER A RESPOSTA DO BANCO
-        json_string2 = s.recv(1024)
-        data = ferAnti_MiM.decrypt(json_string2)
-        if (not validadeResumeRequest(data)):
-            print("RESUMO INVALIDO")
+        try:
+            json_string2 = s.recv(1024)
+            data = ferAnti_MiM.decrypt(json_string2)
+            if (not validadeResumeRequest(data)):
+                print(63)
+                sys.exit(63)
 
-        dicionario  = json.loads(data)
-        if not(validateMatrixChallange(dicionario['nounce'], hmac_ATM)):
-            print("NOUNCE INVALIDO")
+            dicionario  = json.loads(data)
+            if not(validateMatrixChallange(dicionario['nounce'], hmac_ATM)):
+                print(63)
+                sys.exit(63)
+        except(InvalidToken):
+            print(63)
+            sys.exit(63)
 
 
         return dicionario  # retorna a resposta do banco
@@ -244,11 +259,13 @@ def criar_cartao(args):
         user_balance = 0  # Default balance if not provided
 
     resposta = send("createAcc", args.account ,user_balance)
+    if not resposta['param1'] == str(255):
+        with open(args.cardfile, 'w') as f:
+            f.write(resposta['param1']) ## vem o primeiro parametro, neste caso o resumo do cartão 
 
-    with open(args.cardfile, 'w') as f:
-        f.write(resposta['param1']) ## vem o primeiro parametro, neste caso o resumo do cartão 
-
-    print(resposta['param2']) ## vem o segundo parametro, neste caso o sumario 
+        print(resposta['param2']) ## vem o segundo parametro, neste caso o sumario 
+    else:
+        print(resposta['param1'])
     
 
 def ler_cartao(nome):
@@ -262,56 +279,80 @@ def ler_cartao(nome):
 
 
 def withdraw_from_card(args):
-    try:
-        data = send("levantar", args.account, args.withdraw)
-        if 'message' in data:
-            print(data['message'])
-        else:
-            print("Operação de retirada realizada com sucesso.")
-    except KeyError:
-        print("Erro ao processar resposta do banco: 'message' não encontrado na resposta")
+    resumoCartao = ler_cartao(args.cardfile)
+    data = send("levantar", args.account, args.withdraw, resumoCartao)
+    print(data['param1'])
+
+
 
 def deposit_to_card(args):
-    try:
-        data = send("deposit", args.account, args.deposit)
-        if 'message' in data:
-            print(data['message'])
-        else:
-            print("Operação de depósito realizada com sucesso.")
-    except KeyError:
-        print("Erro ao processar resposta do banco: 'message' não encontrado na resposta")
+    resumoCartao = ler_cartao(args.cardfile)
+    data = send("deposit", args.account, args.deposit, resumoCartao)
+    print(data['param1'])
+
+   
 
 def get_account_info(args):
     resumoCartao = ler_cartao(args.cardfile)
-    try:
-        data = send("consultar", args.account, 0, resumoCartao)
-        print(data['param1'])
+    data = send("consultar", args.account, 0, resumoCartao)
+    print(data['param1'])
 
-    except KeyError:
-        print("Erro ao processar resposta do banco: 'message' não encontrado na resposta")
+
+def is_money(value):
+    parts = str(value).split('.')
+    
+    if len(parts) == 2:
+        if parts[1].isdigit() and len(parts[1]) <= 2 and parts[0].isdigit():
+            return True
+        elif parts[1] == '' and parts[0].isdigit():  # Se a parte decimal está vazia mas o ponto existe
+            return True
+    elif len(parts) == 1 and parts[0].isdigit():
+        return True
+    return False
+
 
 def main():
     lerChave("bank.auth")
     if args.balance: ## QUERO criar conta
         ## ver se cartão com o nome já existe
-        if not(verificar_existencia_arquivo(args.account, args.cardfile)) and (float(args.balance)>=0.0): ## se cartão não existe
-            criar_cartao(args)
+        if not(verificar_existencia_arquivo(args.account, args.cardfile))  and (is_money(args.balance)): ## se cartão não existe
+            if (float(args.balance)>0.0):
+                criar_cartao(args)
+        else:
+            print("255")
+            sys.exit(255)
 
     elif args.getinfo:
         
-        
         if (verificar_existencia_arquivo(args.account, args.cardfile, True )): ## se cartão não existe
             get_account_info(args)
-
-        
+        else:
+            print("255")
+            sys.exit(255)
 
 
     elif args.deposit is not None:
-        deposit_to_card(args)
+        
+        if (verificar_existencia_arquivo(args.account, args.cardfile, True )) and (is_money(args.deposit)): ## se cartão não existe
+            if (float(args.deposit)>0.0):
+                deposit_to_card(args)
+        else:
+            print("255")
+            sys.exit(255)
+
+
     elif args.withdraw is not None:
-        withdraw_from_card(args)
+        if (verificar_existencia_arquivo(args.account, args.cardfile, True )) and (is_money(args.withdraw) ): ## se cartão não existe
+            if (float(args.withdraw)>0.0):
+                withdraw_from_card(args)
+        else:
+            print("255")
+            sys.exit(255)
+
+
     else:
-        print("Comando inválido. Use -h para ajuda.")
+        print("255")
+        sys.exit(255)
 
 
 if __name__ == "__main__":
