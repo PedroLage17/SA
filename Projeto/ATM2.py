@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser()
 group = parser.add_mutually_exclusive_group()
 parser.add_argument("-s", help="authentication file", action="store", dest='authfile', default="bank.auth")
 parser.add_argument("-i", help="bank's ip address", action="store", dest='ip', default="127.0.0.1")
-parser.add_argument("-p", help="bank's port number", action="store", dest='port', type=int, default=4001)
+parser.add_argument("-p", help="bank's port number", action="store", dest='port', type=int, default=3000)
 parser.add_argument("-c", help="card-file", action="store", dest='cardfile', default=None)
 parser.add_argument("-a", help="account", action="store", required=True, dest='account')
 group.add_argument("-n", help="balance when create an account", action="store", dest='balance')
@@ -343,7 +343,6 @@ def validate_command_line_arguments(args):
     # Serializa os argumentos para uma string como se fossem fornecidos na linha de comando
     combined_args = ' '.join(f"{key} {value}" for key, value in vars(args).items() if value is not None)
     # Checa se o comprimento total excede 4096 caracteres
-    print(len(combined_args))
     if len(combined_args) > 4096:
         sys.exit(255)  # Encerra o programa se exceder o comprimento máximo
 

@@ -12,6 +12,7 @@ import hmac
 import hashlib
 import base64
 
+
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Signature import pkcs1_15
@@ -19,21 +20,9 @@ from Crypto.Hash import SHA256
 
 
 
-nome_arquivo = "bank.auth"
-
-try:
-    # Remove o arquivo
-    os.remove(nome_arquivo)
-    print(f"O arquivo {nome_arquivo} foi removido com sucesso.")
-except FileNotFoundError:
-    print(f"O arquivo {nome_arquivo} não foi encontrado.")
-except PermissionError:
-    print(f"Permissão negada para remover o arquivo {nome_arquivo}.")
-except Exception as e:
-    print(f"Erro ao remover o arquivo {nome_arquivo}: {e}")
 
 
-
+debug = True ## mudar para Falso
 
 BUFFER_SIZE = 8192
 
@@ -87,7 +76,6 @@ def assinar_com_privada(mensagem):
 
 def parse_money(money_string):
     parts = str(money_string).strip().split('.')
-    print(parts)
     amount = [0, 0]  # Inicializa a parte inteira e decimal como zero
 
     # Verifica e trata a parte inteira
@@ -323,15 +311,54 @@ def respostaParaATM(f , nouncePorResolver, param1 = None, param2 = None, param3=
 
 ###################################################################################################################################################################
 
+def check_path_traversal(user_input):
+    # Regex para detectar padrões comuns de path traversal
+    patterns = [
+        r'\.\./',  # Unix-like path traversal
+        r'\.\.\\',  # Windows path traversal
+        r'/\.\./',  # Encoded Unix-like path traversal
+        r'\\\.\.\\'  # Encoded Windows path traversal
+    ]
+    
+    # Verifica cada padrão usando expressões regulares
+    for pattern in patterns:
+        if re.search(pattern, user_input):
+            sys.exit(255)
+
+
+
+
+
+
+
 if __name__ == '__main__':
     ## LOADUP START BANK
+
+
+    if debug:
+        nome_arquivo = "bank.auth"
+
+        try:
+            # Remove o arquivo
+            os.remove(nome_arquivo)
+            print(f"O arquivo {nome_arquivo} foi removido com sucesso.")
+        except FileNotFoundError:
+            print(f"O arquivo {nome_arquivo} não foi encontrado.")
+        except PermissionError:
+            print(f"Permissão negada para remover o arquivo {nome_arquivo}.")
+        except Exception as e:
+            print(f"Erro ao remover o arquivo {nome_arquivo}: {e}")
+
+
+
 
     signal.signal(signal.SIGINT, handler_int)
     signal.signal(signal.SIGTERM, handler)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--port", help="port number", default=4001, type=int)
-    parser.add_argument("-s", "--auth_file", help="auth file", default="bank.auth", nargs='?')
+    parser.add_argument("-p", "--port", help="port number", dest = "port", default=3000, type=int)
+    parser.add_argument("-s", "--auth_file", help="auth file", dest = "auth_file", default="bank.auth", nargs='?')
+    parser.add_argument("-i", "--ip_address", help="ip address", default="127.0.0.1", dest = "ip", nargs='?')
 
     args = parser.parse_args()
 
@@ -342,6 +369,8 @@ if __name__ == '__main__':
         sys.exit(255)
 
     pattern = re.compile(r'[_\-\.0-9a-z]{1,255}')
+
+    check_path_traversal(args.auth_file)
 
     if args.auth_file:  ## REMOVER FALSE
         if os.path.isfile(args.auth_file):  ## se ficheiro existe
@@ -366,7 +395,7 @@ if __name__ == '__main__':
 
     ## cria connection
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(('', args.port))
+    s.bind((args.ip, args.port))
     s.listen(1)
     s.settimeout(1)
     print("Ready for connection")
