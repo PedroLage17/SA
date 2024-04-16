@@ -20,9 +20,9 @@ Projeto de SA
    3.3. Crie as pastas bank e atm
 
    3.4. Coloque o ficheiro bank.py dentro da pasta bank
-   
-         3.4.1. Inicie primeiro o banco com o comando " python bank.py ", este
-                irá iniciar o banco e criar um novo ficheiro bank.auth
+
+      3.4.1. Inicie primeiro o banco com o comando " python bank.py ", este
+             irá iniciar o banco e criar um novo ficheiro bank.auth
    
    3.5 Copie o ficheiro bank.auth dentro da pasta bank e coloque na pasta atm,
        coloque o ficheiro atm.py dentro da pasta atm
