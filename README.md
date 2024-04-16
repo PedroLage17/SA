@@ -27,13 +27,13 @@ Projeto de SA
    3.5 Copie o ficheiro bank.auth dentro da pasta bank e coloque na pasta atm,
        coloque o ficheiro atm.py dentro da pasta atm
 
-         3.5.1. Em seguida noutro terminal corra o ATM com o comando
-                " python atm.py -s bank.auth -c bob.card -a bob -n 1000.00 ",
-                com este comando, irá ser criado um ficheiro <username>.card
+      3.5.1. Em seguida noutro terminal corra o ATM com o comando
+             " python atm.py -s bank.auth -c bob.card -a bob -n 1000.00 ",
+             com este comando, irá ser criado um ficheiro <username>.card
 
-4.  Quando precisar de correr o código de novo, será necessario apagar os ficheiros <username>.card e bank.auth
+5.  Quando precisar de correr o código de novo, será necessario apagar os ficheiros (username).card e bank.auth
 
-5. A partir deste passo já está tudo operacional para começarem a
+6. A partir deste passo já está tudo operacional para começarem a
    atacar a nossa aplicação.
    Boa sorte e um resto de um bom trabalho!
    
