@@ -100,7 +100,6 @@ def lerChave(auth_file_name):
             chave_aes = linhas[0]  # A chave AES é a primeira linha
             chave_publica = "\n".join(linhas[1:])
     except IOError as e:
-        print(f"Erro ao ler o arquivo de autenticação: {e}")
         sys.exit(255)
 
 
@@ -134,8 +133,7 @@ def solveChallange(puzzle):
         hmac_Client = gerar_hmac(desafio)
         return hmac_Client
     except Exception as e:
-        print("Authentication failed:", e)
-        return 0
+        sys.exit(63)
 
 def validateMatrixChallange(hmacClient, hmacServer):
     return hmac.compare_digest(hmacClient, hmacServer)
@@ -275,7 +273,7 @@ def criar_cartao(args):
 
         print(resposta['param2']) ## vem o segundo parametro, neste caso o sumario 
     else:
-        print(resposta['param1'])
+        sys.exit(255)
     
 
 def ler_cartao(nome):
